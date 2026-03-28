@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="數獨">
-  <title>數獨 - Multiplayer Sudoku</title>
+  <title>數獨 - Sudoku</title>
   
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23ffcc00%22 rx=%2220%22/><text y=%2272%22 x=%2216%22 font-size=%2265%22>🔢</text></svg>">
   
@@ -92,7 +92,7 @@
     };
 
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : providedConfig;
-    const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'sudoku-hybrid-v2';
+    const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'sudoku-hybrid-v3';
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -112,9 +112,9 @@
     ];
 
     const DIFFICULTIES = [
-      { id: 'easy', name: "🟢 簡單", targets: { 4: 10, 9: 38, 16: 150 } },
-      { id: 'medium', name: "🟡 普通", targets: { 4: 8, 9: 30, 16: 125 } },
-      { id: 'hard', name: "🔴 困難", targets: { 4: 6, 9: 24, 16: 100 } }
+      { id: 'easy', name: "🟢 簡單", targets: { 4: [9, 12], 9: [40, 45], 16: [140, 150] } },
+      { id: 'medium', name: "🟡 普通", targets: { 4: [6, 7], 9: [27, 32], 16: [100, 120] } },
+      { id: 'hard', name: "🔴 困難", targets: { 4: [3, 4], 9: [20, 22], 16: [70, 85] } }
     ];
 
     const BASE_4 = [[0,1,2,3],[2,3,0,1],[1,0,3,2],[3,2,1,0]];
@@ -167,93 +167,103 @@
         return count;
     }
 
-    function generateSudoku(sizeId, diffId) {
+    // === 非同步出題引擎 (反覆嘗試，確保唯一解與目標數量) ===
+    async function generateSudokuAsync(sizeId, diffId, onProgress) {
         const sizeDef = SIZES.find(s => s.id === sizeId);
         const diffDef = DIFFICULTIES.find(d => d.id === diffId);
-        const targetClues = diffDef.targets[sizeId];
+        const targetRange = diffDef.targets[sizeId];
+        const targetMin = targetRange[0];
+        const targetMax = targetRange[1];
+        
         const { size, boxW, boxH, chars } = sizeDef;
         
-        let grid = (size === 4 ? BASE_4 : size === 9 ? BASE_9 : BASE_16).map(row => [...row]);
-
-        const charPool = [...chars]; charPool.sort(() => Math.random() - 0.5);
-        grid = grid.map(row => row.map(val => charPool[val]));
-
-        for (let i = 0; i < size; i += boxH) {
-            const block = grid.slice(i, i + boxH); block.sort(() => Math.random() - 0.5); grid.splice(i, boxH, ...block);
-        }
-        grid = transpose(grid);
-        for (let i = 0; i < size; i += boxW) {
-            const block = grid.slice(i, i + boxW); block.sort(() => Math.random() - 0.5); grid.splice(i, boxW, ...block);
-        }
-        grid = transpose(grid);
+        let bestResult = null;
+        let minCluesAchieved = Infinity;
         
-        const bands = []; for(let i=0; i<size; i+=boxH) bands.push(grid.slice(i, i+boxH));
-        bands.sort(() => Math.random() - 0.5); grid = bands.flat();
-        
-        grid = transpose(grid);
-        const stacks = []; for(let i=0; i<size; i+=boxW) stacks.push(grid.slice(i, i+boxW));
-        stacks.sort(() => Math.random() - 0.5); grid = transpose(stacks.flat());
+        // 設定最高嘗試次數 (保護機制，若真的一直達不到，就給出最佳的)
+        // 9x9 嘗試多一點以達到 20 的極限，16x16 因為太耗時稍微限制
+        const maxAttempts = size === 16 ? 10 : 40;
 
-        let puzzle = grid.map(r => [...r]);
-        const positions = [];
-        for(let y=0; y<size; y++) for(let x=0; x<size; x++) positions.push({x,y});
-        positions.sort(() => Math.random() - 0.5);
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            // 1. 生成打亂滿盤
+            let grid = (size === 4 ? BASE_4 : size === 9 ? BASE_9 : BASE_16).map(row => [...row]);
+            const charPool = [...chars]; charPool.sort(() => Math.random() - 0.5);
+            grid = grid.map(row => row.map(val => charPool[val]));
 
-        let currentClues = size * size;
-        const maxCheckHoles = size === 16 ? 40 : positions.length; 
-        
-        const testGrid = puzzle.map(r => [...r]);
+            for (let i = 0; i < size; i += boxH) { const block = grid.slice(i, i + boxH); block.sort(() => Math.random() - 0.5); grid.splice(i, boxH, ...block); }
+            grid = transpose(grid);
+            for (let i = 0; i < size; i += boxW) { const block = grid.slice(i, i + boxW); block.sort(() => Math.random() - 0.5); grid.splice(i, boxW, ...block); }
+            grid = transpose(grid);
+            const bands = []; for(let i=0; i<size; i+=boxH) bands.push(grid.slice(i, i+boxH)); bands.sort(() => Math.random() - 0.5); grid = bands.flat();
+            grid = transpose(grid);
+            const stacks = []; for(let i=0; i<size; i+=boxW) stacks.push(grid.slice(i, i+boxW)); stacks.sort(() => Math.random() - 0.5); grid = transpose(stacks.flat());
 
-        for (let i=0; i<maxCheckHoles; i++) {
-            if (currentClues <= targetClues) break;
-            const p1 = positions[i];
-            const p2 = { x: size - 1 - p1.x, y: size - 1 - p1.y };
+            let puzzle = grid.map(r => [...r]);
+            const positions = [];
+            for(let y=0; y<size; y++) for(let x=0; x<size; x++) positions.push({x,y});
+            positions.sort(() => Math.random() - 0.5);
 
-            if (puzzle[p1.y][p1.x] !== null) {
-                const backup1 = puzzle[p1.y][p1.x];
-                const backup2 = puzzle[p2.y][p2.x];
-                
-                puzzle[p1.y][p1.x] = null;
-                testGrid[p1.y][p1.x] = null;
-                let removed = 1;
-                
-                if (p1.x !== p2.x || p1.y !== p2.y) {
-                    puzzle[p2.y][p2.x] = null;
-                    testGrid[p2.y][p2.x] = null;
-                    removed = 2;
-                }
+            let currentClues = size * size;
+            const testGrid = puzzle.map(r => [...r]);
 
-                if (size < 16) {
+            for (let i = 0; i < positions.length; i++) {
+                if (currentClues <= targetMin) break; // 已經達到最小目標，停止挖洞
+
+                const p1 = positions[i];
+                const p2 = { x: size - 1 - p1.x, y: size - 1 - p1.y };
+
+                if (puzzle[p1.y][p1.x] !== null) {
+                    const backup1 = puzzle[p1.y][p1.x];
+                    const backup2 = puzzle[p2.y][p2.x];
+                    
+                    puzzle[p1.y][p1.x] = null;
+                    testGrid[p1.y][p1.x] = null;
+                    let removed = 1;
+                    
+                    if (p1.x !== p2.x || p1.y !== p2.y) {
+                        puzzle[p2.y][p2.x] = null;
+                        testGrid[p2.y][p2.x] = null;
+                        removed = 2;
+                    }
+
                     const testNumGrid = testGrid.map(row => row.map(v => v === null ? null : chars.indexOf(v)));
+                    // 唯一解驗證！
                     if (countSolutions(testNumGrid, size, boxW, boxH, 2) !== 1) {
                         puzzle[p1.y][p1.x] = backup1; testGrid[p1.y][p1.x] = backup1;
                         if (removed === 2) { puzzle[p2.y][p2.x] = backup2; testGrid[p2.y][p2.x] = backup2; }
-                        continue;
+                    } else {
+                        currentClues -= removed;
+                        if (currentClues < minCluesAchieved) {
+                            minCluesAchieved = currentClues;
+                            bestResult = puzzle.map(r => [...r]);
+                            if (onProgress) onProgress(`尋找極限難度... (目標區間: ${targetMax}格以下, 目前最佳: ${minCluesAchieved}格)`);
+                        }
                     }
                 }
-                currentClues -= removed;
+                
+                // 【核心】讓出執行緒給瀏覽器，防止當機且讓畫面進度能夠更新
+                if (i % 15 === 0) await new Promise(r => setTimeout(r, 0));
             }
+
+            if (currentClues <= targetMax) break; // 成功達到目標區間，跳出重試迴圈
         }
+
+        // 如果真的達不到目標（例如要 20，但算完最好只有 23），就回傳最佳的 23 確保唯一解
+        if (!bestResult) bestResult = grid;
 
         const cells = [];
         for (let y = 0; y < size; y++) {
             for (let x = 0; x < size; x++) {
-                const isGiven = puzzle[y][x] !== null;
+                const isGiven = bestResult[y][x] !== null;
                 cells.push({
                     id: `${x}-${y}`, x: x, y: y, boxId: Math.floor(x/boxW) + Math.floor(y/boxH) * (size/boxW),
-                    value: isGiven ? puzzle[y][x] : null, isGiven: isGiven, drafts: [], owner: null
+                    value: isGiven ? bestResult[y][x] : null, isGiven: isGiven, drafts: [], owner: null
                 });
             }
         }
 
         return { sizeDef, diffDef, cells };
     }
-
-    const getAvailableColor = (currentPlayers) => {
-      const usedColors = currentPlayers.map(p => p.color);
-      const available = COLORS.filter(c => !usedColors.includes(c));
-      return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : COLORS[Math.floor(Math.random() * COLORS.length)];
-    };
 
     function formatTime(secs) { return String(Math.floor(secs / 60)).padStart(2, '0') + ":" + String(secs % 60).padStart(2, '0'); }
 
@@ -277,8 +287,9 @@
       const myNameRef = useRef("");
       const myColorRef = useRef(COLORS[0]);
 
-      const initialDataRef = useRef(null);
-      if (!initialDataRef.current) initialDataRef.current = generateSudoku(9, 'medium');
+      // 初始為空盤，讓畫面先載入
+      const emptyLevelData = { sizeDef: SIZES[1], diffDef: DIFFICULTIES[1], cells: [] };
+      const initialDataRef = useRef(emptyLevelData);
 
       const [user, setUser] = useState(null);
       const [authError, setAuthError] = useState(""); 
@@ -307,14 +318,17 @@
 
       const [interactionMode, setInteractionMode] = useState(0);
       const [drawSubMode, setDrawSubMode] = useState('pen');
-      const [selectedChar, setSelectedChar] = useState('1');
+      const [selectedChar, setSelectedChar] = useState(null); 
       
       const modeIcons = ['🖋️', '✏️', '🖌️'];
       const modeTitles = ['填答模式', '草稿模式', '畫筆作記號'];
 
       const [zoomModeIdx, setZoomModeIdx] = useState(0); 
       const [isClosingModal, setIsClosingModal] = useState(false);
+      
+      // 生成進度狀態
       const [isGenerating, setIsGenerating] = useState(false);
+      const [genProgress, setGenProgress] = useState("");
 
       const [colorPickerTarget, setColorPickerTarget] = useState(null);
       const [colorSeq, setColorSeq] = useState([]);
@@ -374,7 +388,7 @@
               if (interactionMode >= 2) return;
               const key = e.key.toUpperCase();
               if (cSizeDef.chars.includes(key)) {
-                  setSelectedChar(key);
+                  setSelectedChar(prev => prev === key ? null : key);
               } else if (e.key === 'q' || e.key === 'Q') {
                   toggleInteractionMode();
               }
@@ -384,10 +398,12 @@
       }, [screen, cSizeDef.chars, interactionMode]);
 
       useEffect(() => {
-          if (cSizeDef && cSizeDef.chars && !cSizeDef.chars.includes(selectedChar)) setSelectedChar(cSizeDef.chars[0]);
+          if (selectedChar !== null && cSizeDef && cSizeDef.chars && !cSizeDef.chars.includes(selectedChar)) {
+              setSelectedChar(null);
+          }
       }, [cSizeDef, selectedChar]);
 
-      const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[0]; };
+      const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[11]; }; // 天空藍預設
       
       const myCurrentColor = getPlayerColor(myId);
       const _mePlayer = playersList.find(p => p.id === myId);
@@ -564,7 +580,16 @@
         if (isWon || interactionMode >= 2) return;
         const cur = cells || []; const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
-        if (target.isGiven) return; 
+        
+        if (selectedChar === null) {
+            if (target.value !== null) setSelectedChar(target.value);
+            return;
+        }
+
+        if (target.isGiven) {
+            setSelectedChar(prev => prev === target.value ? null : target.value);
+            return; 
+        }
 
         if (engineRef.current === 'none') {
             setHistory(past => { const newPast = [...past, cur]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
@@ -599,18 +624,27 @@
         syncState({ cells: cells.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null })), strokes: [], startTime: Date.now() });
         if (engineRef.current === 'none') setHistory([]);
         setIsWon(false); setEndTime(null);
+        setSelectedChar(null);
       };
 
-      const generateAndSync = (sId, dId) => {
+      // ==== 核心的非同步觸發與狀態綁定 ====
+      const generateAndSync = async (sId, dId) => {
         setIsGenerating(true);
-        setTimeout(() => {
-            purgeGhostPlayers();
-            const newData = generateSudoku(sId, dId);
-            syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now() });
-            setIsWon(false); setHistory([]); setZoomLevel(1); setZoomModeIdx(0); setEndTime(null); setHideVictoryModal(false);
-            if (!newData.sizeDef.chars.includes(selectedChar)) setSelectedChar(newData.sizeDef.chars[0]);
-            setIsGenerating(false);
-        }, 100);
+        setGenProgress("初始化盤面...");
+        purgeGhostPlayers();
+        
+        // 暫停一下讓畫面有時間渲染「生成中...」
+        await new Promise(r => setTimeout(r, 50));
+        
+        const newData = await generateSudokuAsync(sId, dId, (msg) => {
+            setGenProgress(msg);
+        });
+
+        syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now() });
+        setIsWon(false); setHistory([]); setZoomLevel(1); setZoomModeIdx(0); setEndTime(null); setHideVictoryModal(false);
+        setSelectedChar(null); 
+        setIsGenerating(false);
+        setGenProgress("");
       };
 
       const handleSizeChange = (e) => { if (engineRef.current === 'none' || isHostRef.current) generateAndSync(Number(e.target.value), diffId); };
@@ -627,12 +661,34 @@
         setCursors({}); setRipples([]); setInteractionMode(0);
       };
 
-      const startSinglePlayer = () => { switchToOffline(); setScreen('game'); handleReset(); setIsHeaderCollapsed(false); };
+      const startSinglePlayer = () => { 
+          switchToOffline(); 
+          setScreen('game'); 
+          setIsHeaderCollapsed(false); 
+          generateAndSync(sizeId, diffId); 
+      };
 
-      const initiateHostGame = () => {
+      const initiateHostGame = async () => {
         const pName = tempPlayerName.trim(); if (!pName) return showToast("⚠️ 請先設定顯示暱稱");
-        setIsConnecting(true); const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
-        if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; setupFirebase(finalId, pName, true); } else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(finalId, pName, true); }
+        setIsConnecting(true); 
+
+        // 主機開啟房間前，先生成第一張圖
+        setIsGenerating(true);
+        setGenProgress("初始化連線盤面...");
+        await new Promise(r => setTimeout(r, 50));
+        const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
+        stateRef.current.levelData = initialLevelData;
+        stateRef.current.cells = initialLevelData.cells;
+        stateRef.current.strokes = [];
+        stateRef.current.startTime = Date.now();
+        setCells(initialLevelData.cells);
+        setLevelData(initialLevelData);
+        setIsGenerating(false);
+        setGenProgress("");
+
+        const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
+        if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; await setupFirebase(finalId, pName, true); } 
+        else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(finalId, pName, true); }
       };
 
       const joinExistingGame = () => {
@@ -665,7 +721,8 @@
             if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current }] }).catch(e => {});
             if (data.gameState) {
               const gs = data.gameState;
-              if (gs.cells) setCells(gs.cells); if (gs.levelData) setLevelData(gs.levelData);
+              if (gs.cells && gs.cells.length > 0) setCells(gs.cells); 
+              if (gs.levelData) setLevelData(gs.levelData);
               if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
               if (gs.startTime) setStartTime(gs.startTime); if (gs.strokes !== undefined) setStrokes(gs.strokes);
               stateRef.current = gs;
@@ -777,7 +834,7 @@
       // 選項 Y: 輔助高亮系統 (十字與宮格)
       const highlightZones = useMemo(() => {
           const zones = new Set();
-          if (selectedChar && interactionMode < 2) {
+          if (selectedChar !== null && interactionMode < 2) {
               cells.forEach(c => {
                   if (c.value === selectedChar) {
                       for (let i = 0; i < cSizeDef.size; i++) {
@@ -823,6 +880,7 @@
           const restoredCells = data.l.cells.map(c => { const saved = data.c.find(sc => sc.i === c.id); return saved ? { ...c, value: saved.v, drafts: saved.d || [], owner: saved.o } : c; });
           syncState({ sizeId: data.sId, diffId: data.dId, levelData: data.l, cells: restoredCells, strokes: data.s || [] });
           setIsWon(false); setShowSaveModal(false); showToast("✅ 讀取成功！");
+          setSelectedChar(null); // 讀檔後淨空選擇
         } catch(e) { showToast("⚠️ 讀檔失敗！"); }
       };
 
@@ -856,7 +914,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 數獨連線. (v2.0 唯一解高亮版)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v1.0)</div>
           </div>
         );
       }
@@ -914,7 +972,7 @@
                      <div className="flex-1">
                         <h3 className="text-sm md:text-base font-black mb-1 border-b-[3px] border-[#ffcc00] inline-block pb-0.5">📜 遊戲規則</h3>
                         <ol className="list-decimal list-outside ml-4 space-y-1 text-xs md:text-sm leading-relaxed font-bold">
-                           <li>選擇下方數字點擊方格。同一個數字的同行、同列、同宮格會亮起黃色輔助線。</li>
+                           <li>選擇下方數字點擊方格。若不選下方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
                            <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
                            <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
                            <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
@@ -982,16 +1040,24 @@
             {!isHeaderCollapsed && (
               <div className="h-8 shrink-0 flex items-center justify-center bg-slate-800 text-white border-b-4 border-slate-800 relative z-30 font-bold tracking-wide">
                 <span className="text-xs md:text-sm hidden md:inline">支援滑鼠拖曳、滾輪縮放；向下滑動畫布可自動收合選單。</span>
-                <span className="text-xs md:text-sm md:hidden">點選下方數字再點擊方格。支援雙指縮放與平移。</span>
+                <span className="text-xs md:text-sm md:hidden">點選上方數字再點擊方格。支援雙指縮放與平移。</span>
               </div>
             )}
 
             <div className="relative z-0 flex-1 flex flex-col min-h-0 bg-[#fffaf0]">
               
               {isGenerating && (
-                <div className="absolute inset-0 z-[40] flex items-center justify-center pointer-events-none bg-[#fffaf0]/60 backdrop-blur-sm">
-                  <div className="text-slate-800/80 font-black text-3xl md:text-5xl tracking-widest flex items-center select-none animate-pulse">
-                    唯一解驗證中<span className="animate-loading-dots inline-block w-[1.5em] text-left"></span>
+                <div className="absolute inset-0 z-[40] flex flex-col items-center justify-center pointer-events-none bg-[#fffaf0]/80 backdrop-blur-sm">
+                  <div className="text-slate-800 font-black text-2xl md:text-4xl tracking-widest flex items-center select-none animate-pulse mb-4">
+                    題目生成中<span className="animate-loading-dots inline-block w-[1.5em] text-left"></span>
+                  </div>
+                  {genProgress && (
+                    <div className="text-slate-600 font-bold text-sm md:text-base animate-fadeIn">
+                       {genProgress}
+                    </div>
+                  )}
+                  <div className="text-emerald-600 font-bold text-xs mt-2 opacity-80">
+                    *嚴格唯一解運算較耗時，請稍候*
                   </div>
                 </div>
               )}
@@ -1059,13 +1125,14 @@
                         {/* 背景與高亮 */}
                         {cells.map(cell => {
                             const hasConflict = conflictCellIds.has(cell.id);
-                            const isExactMatch = selectedChar && cell.value === selectedChar && interactionMode < 2;
+                            const isExactMatch = selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
                             const isHighlightZone = highlightZones.has(cell.id);
+                            const isFilledWithOther = selectedChar !== null && cell.value !== null && cell.value !== selectedChar && interactionMode < 2;
                             
                             let fillColor = '#ffffff';
-                            if (hasConflict) fillColor = '#fee2e2'; // 淺紅 (最優先)
-                            else if (isExactMatch) fillColor = '#fde047'; // 明黃
-                            else if (isHighlightZone) fillColor = '#fef08a'; // 淺黃
+                            if (hasConflict) fillColor = '#fee2e2'; 
+                            else if (isExactMatch) fillColor = '#fde047'; 
+                            else if (isHighlightZone || isFilledWithOther) fillColor = '#fef8cb'; 
                             
                             return (
                                 <rect key={`bg-${cell.id}`} x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={fillColor} className="transition-colors duration-300 pointer-events-none" />
@@ -1092,7 +1159,7 @@
                             }
 
                             return (
-                                <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 || cell.isGiven ? 'pointer-events-none' : 'cursor-pointer group'}>
+                                <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
                                     <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
                                     {cell.value ? (
                                         <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>

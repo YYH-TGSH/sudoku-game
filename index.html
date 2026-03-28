@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="連線數獨">
+  <title>連線數獨 - Multiplayer Sudoku</title>
+  
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23ffcc00%22 rx=%2220%22/><text y=%2272%22 x=%2216%22 font-size=%2265%22>🔢</text></svg>">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+
+  <style>
+    body {
+      overscroll-behavior-y: none;
+      background-color: #fdf5e6; 
+      background-image: radial-gradient(#d3c5ab 2px, transparent 2px); 
+      background-size: 12px 12px; 
+      margin: 0; padding: 0;
+      font-family: 'Helvetica Neue', Helvetica, Arial, 'PingFang TC', 'Heiti TC', 'Microsoft JhengHei', sans-serif;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fadeIn { animation: fadeIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    
+    @keyframes popUp { 0% { transform: translateY(30px) scale(0.95); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+    .animate-popUp { animation: popUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    
+    @keyframes slideUpFade { 0% { transform: translate(-50%, 20px); opacity: 0; } 100% { transform: translate(-50%, 0); opacity: 1; } }
+    .animate-slideUpFade { animation: slideUpFade 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    
+    @keyframes popUpCenter { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    .animate-popUpCenter { animation: popUpCenter 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+    
+    @keyframes popOutCenter { 0% { transform: scale(1); opacity: 1; } 100% { transform: scale(0.8); opacity: 0; } }
+    .animate-popOutCenter { animation: popOutCenter 0.3s ease-in forwards; }
+    
+    @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    .animate-fadeOut { animation: fadeOut 0.3s ease-in forwards; }
+    
+    @keyframes rippleAnim { 0% { transform: scale(0.1); opacity: 0.8; stroke-width: 6px; } 100% { transform: scale(3); opacity: 0; stroke-width: 2px; } }
+    
+    @keyframes dotAnim { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
+    .animate-loading-dots::after { content: ''; animation: dotAnim 1.5s infinite; }
+
+    @keyframes rainbowStopAnim {
+      0%{stop-color:#E3002B;} 5%{stop-color:#F35B00;} 10%{stop-color:#FFC90E;} 15%{stop-color:#D7157A;} 20%{stop-color:#E895C0;} 25%{stop-color:#007A61;} 30%{stop-color:#87D300;} 35%{stop-color:#C4D600;} 40%{stop-color:#8DD1BF;} 45%{stop-color:#616130;} 50%{stop-color:#00538A;} 55%{stop-color:#008CC1;} 60%{stop-color:#00C1D5;} 65%{stop-color:#79C8ED;} 70%{stop-color:#CDBB79;} 75%{stop-color:#41136A;} 80%{stop-color:#935CB9;} 85%{stop-color:#BCA8D1;} 90%{stop-color:#7A0026;} 95%{stop-color:#BC7B70;} 100%{stop-color:#E3002B;}
+    }
+    .rainbow-stop { animation: rainbowStopAnim 20s linear infinite; }
+    .rainbow-stroke { stroke: url(#rainbowGrad) !important; }
+    .rainbow-fill { fill: url(#rainbowGrad) !important; }
+
+    .custom-scrollbar::-webkit-scrollbar { width: 12px; height: 12px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-left: 2px solid #1e293b; border-top: 2px solid #1e293b; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border: 2px solid #1e293b; border-radius: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body>
+
+  <div id="root"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    window.firebaseAPI = {
+      initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
+      getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc
+    };
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+    const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc } = window.firebaseAPI;
+
+    // === Firebase 配置 ===
+    const providedConfig = {
+      apiKey: "AIzaSyCbw8MNh616_OIBfoyh2gIhQQhsgsN8rAc",
+      authDomain: "hashi-game-2c006.firebaseapp.com",
+      databaseURL: "https://hashi-game-2c006-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "hashi-game-2c006",
+      storageBucket: "hashi-game-2c006.firebasestorage.app",
+      messagingSenderId: "732616383715",
+      appId: "1:732616383715:web:f31a0f7f24a08f3b78b9d6"
+    };
+
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : providedConfig;
+    const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'sudoku-hybrid-v2';
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const COLORS = [
+      '#E3002B', '#F35B00', '#FFC90E', '#D7157A', '#E895C0', 
+      '#007A61', '#87D300', '#C4D600', '#8DD1BF', '#616130', 
+      '#00538A', '#008CC1', '#00C1D5', '#79C8ED', '#CDBB79', 
+      '#41136A', '#935CB9', '#BCA8D1', '#7A0026', '#BC7B70'  
+    ];
+
+    // === 數獨雙選單設定 ===
+    const SIZES = [
+      { id: 4, name: "4x4 幼幼班", size: 4, boxW: 2, boxH: 2, chars: ['1','2','3','4'] },
+      { id: 9, name: "9x9 標準", size: 9, boxW: 3, boxH: 3, chars: ['1','2','3','4','5','6','7','8','9'] },
+      { id: 16, name: "16x16 史詩", size: 16, boxW: 4, boxH: 4, chars: ['0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'] }
+    ];
+
+    const DIFFICULTIES = [
+      { id: 'easy', name: "🟢 簡單", targets: { 4: 10, 9: 38, 16: 150 } },
+      { id: 'medium', name: "🟡 普通", targets: { 4: 8, 9: 30, 16: 125 } },
+      { id: 'hard', name: "🔴 困難", targets: { 4: 6, 9: 24, 16: 100 } }
+    ];
+
+    const BASE_4 = [[0,1,2,3],[2,3,0,1],[1,0,3,2],[3,2,1,0]];
+    const BASE_9 = [
+        [0,1,2,3,4,5,6,7,8], [3,4,5,6,7,8,0,1,2], [6,7,8,0,1,2,3,4,5],
+        [1,2,3,4,5,6,7,8,0], [4,5,6,7,8,0,1,2,3], [7,8,0,1,2,3,4,5,6],
+        [2,3,4,5,6,7,8,0,1], [5,6,7,8,0,1,2,3,4], [8,0,1,2,3,4,5,6,7]
+    ];
+    const BASE_16 = [
+        [0,1,2,3, 4,5,6,7, 8,9,10,11, 12,13,14,15], [4,5,6,7, 8,9,10,11, 12,13,14,15, 0,1,2,3], [8,9,10,11, 12,13,14,15, 0,1,2,3, 4,5,6,7], [12,13,14,15, 0,1,2,3, 4,5,6,7, 8,9,10,11],
+        [1,2,3,0, 5,6,7,4, 9,10,11,8, 13,14,15,12], [5,6,7,4, 9,10,11,8, 13,14,15,12, 1,2,3,0], [9,10,11,8, 13,14,15,12, 1,2,3,0, 5,6,7,4], [13,14,15,12, 1,2,3,0, 5,6,7,4, 9,10,11,8],
+        [2,3,0,1, 6,7,4,5, 10,11,8,9, 14,15,12,13], [6,7,4,5, 10,11,8,9, 14,15,12,13, 2,3,0,1], [10,11,8,9, 14,15,12,13, 2,3,0,1, 6,7,4,5], [14,15,12,13, 2,3,0,1, 6,7,4,5, 10,11,8,9],
+        [3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14], [7,4,5,6, 11,8,9,10, 15,12,13,14, 3,0,1,2], [11,8,9,10, 15,12,13,14, 3,0,1,2, 7,4,5,6], [15,12,13,14, 3,0,1,2, 7,4,5,6, 11,8,9,10]
+    ];
+
+    function transpose(matrix) { return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex])); }
+
+    // === 回溯法求解器 (唯一解驗證) ===
+    function countSolutions(grid, size, boxW, boxH, limit = 2) {
+        let count = 0;
+        const solve = (index) => {
+            if (index === size * size) { count++; return count >= limit; }
+            const y = Math.floor(index / size);
+            const x = index % size;
+            if (grid[y][x] !== null) return solve(index + 1);
+
+            const used = new Set();
+            for (let i = 0; i < size; i++) {
+                if (grid[y][i] !== null) used.add(grid[y][i]);
+                if (grid[i][x] !== null) used.add(grid[i][x]);
+            }
+            const by = Math.floor(y / boxH) * boxH;
+            const bx = Math.floor(x / boxW) * boxW;
+            for (let dy = 0; dy < boxH; dy++) {
+                for (let dx = 0; dx < boxW; dx++) {
+                    if (grid[by + dy][bx + dx] !== null) used.add(grid[by + dy][bx + dx]);
+                }
+            }
+
+            for (let v = 0; v < size; v++) {
+                if (!used.has(v)) {
+                    grid[y][x] = v;
+                    if (solve(index + 1)) { grid[y][x] = null; return true; }
+                    grid[y][x] = null;
+                }
+            }
+            return false;
+        };
+        solve(0);
+        return count;
+    }
+
+    function generateSudoku(sizeId, diffId) {
+        const sizeDef = SIZES.find(s => s.id === sizeId);
+        const diffDef = DIFFICULTIES.find(d => d.id === diffId);
+        const targetClues = diffDef.targets[sizeId];
+        const { size, boxW, boxH, chars } = sizeDef;
+        
+        let grid = (size === 4 ? BASE_4 : size === 9 ? BASE_9 : BASE_16).map(row => [...row]);
+
+        const charPool = [...chars]; charPool.sort(() => Math.random() - 0.5);
+        grid = grid.map(row => row.map(val => charPool[val]));
+
+        for (let i = 0; i < size; i += boxH) {
+            const block = grid.slice(i, i + boxH); block.sort(() => Math.random() - 0.5); grid.splice(i, boxH, ...block);
+        }
+        grid = transpose(grid);
+        for (let i = 0; i < size; i += boxW) {
+            const block = grid.slice(i, i + boxW); block.sort(() => Math.random() - 0.5); grid.splice(i, boxW, ...block);
+        }
+        grid = transpose(grid);
+        
+        const bands = []; for(let i=0; i<size; i+=boxH) bands.push(grid.slice(i, i+boxH));
+        bands.sort(() => Math.random() - 0.5); grid = bands.flat();
+        
+        grid = transpose(grid);
+        const stacks = []; for(let i=0; i<size; i+=boxW) stacks.push(grid.slice(i, i+boxW));
+        stacks.sort(() => Math.random() - 0.5); grid = transpose(stacks.flat());
+
+        let puzzle = grid.map(r => [...r]);
+        const positions = [];
+        for(let y=0; y<size; y++) for(let x=0; x<size; x++) positions.push({x,y});
+        positions.sort(() => Math.random() - 0.5);
+
+        let currentClues = size * size;
+        const maxCheckHoles = size === 16 ? 40 : positions.length; 
+        
+        const testGrid = puzzle.map(r => [...r]);
+
+        for (let i=0; i<maxCheckHoles; i++) {
+            if (currentClues <= targetClues) break;
+            const p1 = positions[i];
+            const p2 = { x: size - 1 - p1.x, y: size - 1 - p1.y };
+
+            if (puzzle[p1.y][p1.x] !== null) {
+                const backup1 = puzzle[p1.y][p1.x];
+                const backup2 = puzzle[p2.y][p2.x];
+                
+                puzzle[p1.y][p1.x] = null;
+                testGrid[p1.y][p1.x] = null;
+                let removed = 1;
+                
+                if (p1.x !== p2.x || p1.y !== p2.y) {
+                    puzzle[p2.y][p2.x] = null;
+                    testGrid[p2.y][p2.x] = null;
+                    removed = 2;
+                }
+
+                if (size < 16) {
+                    const testNumGrid = testGrid.map(row => row.map(v => v === null ? null : chars.indexOf(v)));
+                    if (countSolutions(testNumGrid, size, boxW, boxH, 2) !== 1) {
+                        puzzle[p1.y][p1.x] = backup1; testGrid[p1.y][p1.x] = backup1;
+                        if (removed === 2) { puzzle[p2.y][p2.x] = backup2; testGrid[p2.y][p2.x] = backup2; }
+                        continue;
+                    }
+                }
+                currentClues -= removed;
+            }
+        }
+
+        const cells = [];
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const isGiven = puzzle[y][x] !== null;
+                cells.push({
+                    id: `${x}-${y}`, x: x, y: y, boxId: Math.floor(x/boxW) + Math.floor(y/boxH) * (size/boxW),
+                    value: isGiven ? puzzle[y][x] : null, isGiven: isGiven, drafts: [], owner: null
+                });
+            }
+        }
+
+        return { sizeDef, diffDef, cells };
+    }
+
+    function formatTime(secs) { return String(Math.floor(secs / 60)).padStart(2, '0') + ":" + String(secs % 60).padStart(2, '0'); }
+
+    function GameTimer({ startTime, endTime, isRunning }) {
+        const [now, setNow] = useState(Date.now());
+        useEffect(() => {
+            if (!isRunning) return;
+            setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 1000);
+            return () => clearInterval(t);
+        }, [isRunning, startTime]);
+        const secs = Math.max(0, Math.floor(((endTime || now) - startTime) / 1000));
+        return <span>⏱ {formatTime(secs)}</span>;
+    }
+
+    // ==========================================
+    // React 主程式
+    // ==========================================
+    function SudokuGame() {
+      const playerIdRef = useRef(Math.random().toString(36).substring(2, 12));
+      const myId = playerIdRef.current;
+      const myNameRef = useRef("");
+      const myColorRef = useRef(COLORS[0]);
+
+      const initialDataRef = useRef(null);
+      if (!initialDataRef.current) initialDataRef.current = generateSudoku(9, 'medium');
+
+      const [user, setUser] = useState(null);
+      const [authError, setAuthError] = useState(""); 
+      const [screen, setScreen] = useState('home');
+      const [engine, setEngine] = useState('none');
+      
+      const [sizeId, setSizeId] = useState(9); 
+      const [diffId, setDiffId] = useState('medium'); 
+      
+      const [levelData, setLevelData] = useState(initialDataRef.current);
+      const [cells, setCells] = useState(initialDataRef.current.cells);
+      const [strokes, setStrokes] = useState([]);
+      
+      const [history, setHistory] = useState([]);
+      const [isWon, setIsWon] = useState(false);
+      const [hideVictoryModal, setHideVictoryModal] = useState(false);
+      const [toastMsg, setToastMsg] = useState("");
+      
+      const [startTime, setStartTime] = useState(Date.now());
+      const [endTime, setEndTime] = useState(null);
+
+      const [zoomLevel, setZoomLevel] = useState(1);
+      const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+      const [showSaveModal, setShowSaveModal] = useState(false);
+      const [saveCode, setSaveCode] = useState("");
+
+      const [interactionMode, setInteractionMode] = useState(0);
+      const [drawSubMode, setDrawSubMode] = useState('pen');
+      const [selectedChar, setSelectedChar] = useState(null); // 初始為 null
+      
+      const modeIcons = ['🖋️', '✏️', '🖌️'];
+      const modeTitles = ['填答模式', '草稿模式', '畫筆作記號'];
+
+      const [zoomModeIdx, setZoomModeIdx] = useState(0); 
+      const [isClosingModal, setIsClosingModal] = useState(false);
+      const [isGenerating, setIsGenerating] = useState(false);
+
+      const [colorPickerTarget, setColorPickerTarget] = useState(null);
+      const [colorSeq, setColorSeq] = useState([]);
+
+      const [roomId, setRoomId] = useState("");
+      const [isHost, setIsHost] = useState(false);
+      const [tempRoomId, setTempRoomId] = useState("");
+      const [tempPlayerName, setTempPlayerName] = useState("");
+      const [stableMode, setStableMode] = useState(false); 
+      const [titleClicks, setTitleClicks] = useState(0);
+      const [playersList, setPlayersList] = useState([]);
+      const [isConnecting, setIsConnecting] = useState(false);
+
+      const [showOtherCursors, setShowOtherCursors] = useState(true);
+      const [cursors, setCursors] = useState({});
+      const [ripples, setRipples] = useState([]);
+      
+      const isMultiplayer = engine !== 'none';
+      const svgRef = useRef(null);
+      const lastCursorSend = useRef(0);
+      const isDrawingRef = useRef(false);
+
+      const engineRef = useRef('none');
+      const isHostRef = useRef(false);
+      const peerRef = useRef(null);
+      const connRef = useRef(null); 
+      const connsRef = useRef([]); 
+      const roomRef = useRef(null);
+      const unsubRef = useRef(null);
+      const zoomContainerRef = useRef(null);
+      const lastPinchDist = useRef(null);
+      const stateRef = useRef({ cells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [] });
+      
+      const playersListRef = useRef([]);
+      useEffect(() => { playersListRef.current = playersList; }, [playersList]);
+
+      const zoomLevelRef = useRef(1);
+      const zoomModeIdxRef = useRef(0);
+      const currentPathDataRef = useRef("");
+      const drawingPathRef = useRef(null);
+      const eraserRef = useRef(null);
+      const lastEraseTimeRef = useRef(0);
+
+      const MAX_SAFE_DIMENSION = 8500;
+
+      const cSizeDef = levelData.sizeDef;
+      const cDiffDef = levelData.diffDef;
+      const CELL_SIZE = 60;
+      const PADDING = 20;
+      const svgW = cSizeDef.size * CELL_SIZE + PADDING * 2;
+      const svgH = cSizeDef.size * CELL_SIZE + PADDING * 2;
+
+      // 鍵盤支援：點擊相同數字會取消選取
+      useEffect(() => {
+          if (screen !== 'game') return;
+          const handleKeyDown = (e) => {
+              if (interactionMode >= 2) return;
+              const key = e.key.toUpperCase();
+              if (cSizeDef.chars.includes(key)) {
+                  setSelectedChar(prev => prev === key ? null : key);
+              } else if (e.key === 'q' || e.key === 'Q') {
+                  toggleInteractionMode();
+              }
+          };
+          window.addEventListener('keydown', handleKeyDown);
+          return () => window.removeEventListener('keydown', handleKeyDown);
+      }, [screen, cSizeDef.chars, interactionMode]);
+
+      // 若關卡切換導致當前選擇的數字不在新關卡中，則清空選取
+      useEffect(() => {
+          if (selectedChar !== null && cSizeDef && cSizeDef.chars && !cSizeDef.chars.includes(selectedChar)) {
+              setSelectedChar(null);
+          }
+      }, [cSizeDef, selectedChar]);
+
+      const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[0]; };
+      
+      const myCurrentColor = getPlayerColor(myId);
+      const _mePlayer = playersList.find(p => p.id === myId);
+      myNameRef.current = _mePlayer ? _mePlayer.name : "";
+      myColorRef.current = myCurrentColor;
+
+      useEffect(function() { if (engine !== 'peerjs' && interactionMode >= 2) setInteractionMode(0); }, [engine, interactionMode]);
+      useEffect(() => { zoomLevelRef.current = zoomLevel; }, [zoomLevel]);
+      useEffect(() => { zoomModeIdxRef.current = zoomModeIdx; }, [zoomModeIdx]);
+
+      useEffect(function() {
+        const initAuth = async function() {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) await signInWithCustomToken(auth, __initial_auth_token);
+            else await signInAnonymously(auth);
+          } catch(err) { setAuthError(err.code || err.message); }
+        };
+        initAuth(); onAuthStateChanged(auth, function(u) { if(u) setUser(u); });
+      }, []);
+
+      useEffect(function() { stateRef.current = { cells, levelData, startTime, sizeId, diffId, strokes }; }, [cells, levelData, startTime, sizeId, diffId, strokes]);
+
+      useEffect(function() {
+        if (screen !== 'game') return;
+        const el = zoomContainerRef.current;
+        if (!el) return;
+        let touchStartY = null;
+
+        const handleTouchStart = (e) => { if (e.touches.length === 1) touchStartY = e.touches[0].clientY; };
+        const handleTouchMove = (e) => {
+          if (interactionMode >= 2) return; 
+          if (e.touches.length === 2) {
+            e.preventDefault(); 
+            const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            if (lastPinchDist.current) {
+              const delta = dist - lastPinchDist.current;
+              let newZoom = Math.min(Math.max(zoomLevelRef.current + delta * 0.005, 0.4), 3.5);
+              if (svgW * newZoom > MAX_SAFE_DIMENSION || svgH * newZoom > MAX_SAFE_DIMENSION) newZoom = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH);
+              zoomLevelRef.current = newZoom;
+              if (svgRef.current) { svgRef.current.style.width = `${svgW * newZoom}px`; svgRef.current.style.height = `${svgH * newZoom}px`; }
+              if (zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; }
+            }
+            lastPinchDist.current = dist;
+          } else if (e.touches.length === 1 && touchStartY !== null) {
+            if (Math.abs(e.touches[0].clientY - touchStartY) > 30 && !isHeaderCollapsed) setIsHeaderCollapsed(true);
+          }
+        };
+        const handleTouchEnd = () => { lastPinchDist.current = null; touchStartY = null; if (zoomLevel !== zoomLevelRef.current) setZoomLevel(zoomLevelRef.current); };
+        const handleWheel = (e) => { 
+            if (interactionMode >= 2) return;
+            if (Math.abs(e.deltaY) > 10 && !isHeaderCollapsed) setIsHeaderCollapsed(true); 
+            if (e.ctrlKey && zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; }
+        };
+        el.addEventListener('touchstart', handleTouchStart, { passive: true }); el.addEventListener('touchmove', handleTouchMove, { passive: false }); el.addEventListener('touchend', handleTouchEnd); el.addEventListener('touchcancel', handleTouchEnd); el.addEventListener('wheel', handleWheel, { passive: true });
+        return () => { el.removeEventListener('touchstart', handleTouchStart); el.removeEventListener('touchmove', handleTouchMove); el.removeEventListener('touchend', handleTouchEnd); el.removeEventListener('touchcancel', handleTouchEnd); el.removeEventListener('wheel', handleWheel); };
+      }, [screen, isHeaderCollapsed, interactionMode, svgW, svgH, zoomLevel]);
+
+      useEffect(function() {
+        if (ripples.length === 0) return;
+        const timer = setTimeout(() => { const now = Date.now(); setRipples(prev => prev.filter(r => now - r.timestamp < 1000)); }, 1000);
+        return () => clearTimeout(timer);
+      }, [ripples]);
+
+      const showToast = (m) => { setToastMsg(m); setTimeout(() => setToastMsg(""), 4000); };
+
+      const getSvgCoords = (clientX, clientY) => {
+        const svg = svgRef.current; if (!svg) return null;
+        let pt = svg.createSVGPoint(); pt.x = clientX; pt.y = clientY;
+        const ctm = svg.getScreenCTM(); return ctm ? pt.matrixTransform(ctm.inverse()) : null;
+      };
+
+      const eraseAtPoint = (cx, cy) => {
+          const offsets = [[0,0], [15,0], [-15,0], [0,15], [0,-15], [10,10], [-10,-10], [10,-10], [-10,10]];
+          let hitIds = new Set();
+          for (let off of offsets) {
+              const els = document.elementsFromPoint(cx + off[0], cy + off[1]);
+              for (let el of els) {
+                  if (el.classList.contains('doodle-stroke')) {
+                      const sid = el.getAttribute('data-stroke-id');
+                      const strokeObj = stateRef.current.strokes.find(s => s.id === sid);
+                      if (((strokeObj && strokeObj.uid) || (strokeObj ? strokeObj.id.split('-')[1] : null)) === myId) hitIds.add(sid);
+                  }
+              }
+          }
+          if (hitIds.size > 0) {
+              const newStrokes = stateRef.current.strokes.filter(s => !hitIds.has(s.id));
+              if (newStrokes.length !== stateRef.current.strokes.length) syncState({ strokes: newStrokes });
+          }
+      };
+
+      const handlePointerDown = (e) => {
+        const pt = getSvgCoords(e.clientX, e.clientY); if (!pt) return;
+        if (interactionMode === 2) {
+            e.target.setPointerCapture(e.pointerId);
+            if (drawSubMode === 'pen') {
+                isDrawingRef.current = true; currentPathDataRef.current = `M ${pt.x} ${pt.y}`;
+                if (drawingPathRef.current) { drawingPathRef.current.setAttribute('d', currentPathDataRef.current); drawingPathRef.current.style.display = 'block'; }
+            } else if (drawSubMode === 'eraser') eraseAtPoint(e.clientX, e.clientY);
+            return;
+        }
+        if (engineRef.current !== 'peerjs' || !showOtherCursors) return;
+        const msg = { type: 'CLICK', uid: myId, x: pt.x, y: pt.y };
+        setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: myId, x: pt.x, y: pt.y, timestamp: Date.now() }]);
+        if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
+      };
+
+      const handlePointerMove = (e) => {
+        if (interactionMode === 2) {
+            const pt = getSvgCoords(e.clientX, e.clientY);
+            if (drawSubMode === 'eraser') {
+                if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; }
+                if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); }
+            } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) {
+                currentPathDataRef.current += ` L ${pt.x} ${pt.y}`;
+                if (drawingPathRef.current) drawingPathRef.current.setAttribute('d', currentPathDataRef.current);
+            }
+            return;
+        }
+        if (engineRef.current !== 'peerjs' || !showOtherCursors) return;
+        if (Date.now() - lastCursorSend.current < 50) return; 
+        lastCursorSend.current = Date.now();
+        const pt = getSvgCoords(e.clientX, e.clientY);
+        if (pt) {
+            const msg = { type: 'CURSOR', uid: myId, x: pt.x, y: pt.y };
+            if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
+        }
+      };
+
+      const handlePointerUp = (e) => {
+        if (interactionMode === 2) {
+            if (drawSubMode === 'pen' && isDrawingRef.current) {
+                isDrawingRef.current = false;
+                if (currentPathDataRef.current) {
+                    syncState({ strokes: [...stateRef.current.strokes, { id: Date.now() + '-' + myId, uid: myId, path: currentPathDataRef.current }] });
+                    currentPathDataRef.current = ""; if (drawingPathRef.current) drawingPathRef.current.style.display = 'none';
+                }
+            }
+            if (e.type === 'pointerleave' || e.type === 'pointercancel' || e.pointerType === 'touch') if (eraserRef.current) eraserRef.current.style.display = 'none';
+        }
+      };
+
+      const clearOwnStrokes = () => { syncState({ strokes: stateRef.current.strokes.filter(s => !s.id.endsWith('-' + myId)) }); showToast("🗑️ 已清除你所有的塗鴉"); };
+      const clearAllStrokes = () => { if (isHostRef.current) { syncState({ strokes: [] }); showToast("🚨 房主已清空全場塗鴉"); } };
+
+      const purgeGhostPlayers = () => {
+        if (!isHostRef.current) return;
+        setPlayersList(prev => {
+          const hostPlayer = prev.find(p => p.id === myId); if (!hostPlayer) return prev;
+          const newList = [hostPlayer]; 
+          if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { players: newList }).catch(e => {});
+          else if (engineRef.current === 'peerjs') { connsRef.current = connsRef.current.filter(c => c.open); connsRef.current.forEach(c => { c.send({ type: 'PLAYERS_UPDATE', players: newList }); c.send({ type: 'REQ_REJOIN' }); }); }
+          return newList;
+        });
+      };
+
+      const syncState = (partial, shouldBroadcast = true) => {
+        if (partial.cells !== undefined) setCells(partial.cells);
+        if (partial.levelData !== undefined) setLevelData(partial.levelData);
+        if (partial.startTime !== undefined) setStartTime(partial.startTime);
+        if (partial.sizeId !== undefined) setSizeId(partial.sizeId);
+        if (partial.diffId !== undefined) setDiffId(partial.diffId);
+        if (partial.strokes !== undefined) setStrokes(partial.strokes);
+        
+        const updatedState = { ...stateRef.current, ...partial };
+        stateRef.current = updatedState;
+
+        if (shouldBroadcast) {
+            if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { "gameState": JSON.parse(JSON.stringify(updatedState)), updatedAt: Date.now() }).catch(e => {});
+            else if (engineRef.current === 'peerjs') { if (isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'SYNC', data: updatedState })); else if (connRef.current) connRef.current.send({ type: 'SYNC', data: updatedState }); }
+        }
+      };
+
+      const handleCellClick = (cellId) => {
+        if (isWon || interactionMode >= 2) return;
+        const cur = cells || []; const targetIdx = cur.findIndex(c => c.id === cellId);
+        if (targetIdx === -1) return; const target = cur[targetIdx];
+        
+        // 點擊已有數字的格子，若未選取數字，則自動切換為該數字
+        if (selectedChar === null) {
+            if (target.value !== null) setSelectedChar(target.value);
+            return;
+        }
+
+        // 若格子為題目給定，點擊時直接切換欲填寫的數字（或取消選取）
+        if (target.isGiven) {
+            setSelectedChar(prev => prev === target.value ? null : target.value);
+            return; 
+        }
+
+        if (engineRef.current === 'none') {
+            setHistory(past => { const newPast = [...past, cur]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
+        }
+        
+        const nextCells = [...cur]; let nextCell = { ...target };
+        
+        if (interactionMode === 0) { 
+            if (nextCell.value === selectedChar) { nextCell.value = null; nextCell.owner = null; } 
+            else { nextCell.value = selectedChar; nextCell.owner = myId; nextCell.drafts = []; }
+        } else if (interactionMode === 1) { 
+            if (nextCell.value) { nextCell.value = null; nextCell.owner = null; }
+            let newDrafts = [...(nextCell.drafts || [])];
+            if (newDrafts.includes(selectedChar)) newDrafts = newDrafts.filter(d => d !== selectedChar); else newDrafts.push(selectedChar);
+            nextCell.drafts = newDrafts;
+        }
+
+        nextCells[targetIdx] = nextCell; syncState({ cells: nextCells });
+      };
+
+      const toggleInteractionMode = () => {
+        const nextMode = (interactionMode + 1) % (engineRef.current === 'peerjs' ? 3 : 2);
+        setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
+      };
+
+      const handleUndo = () => {
+        if (history.length === 0 || isWon || engineRef.current !== 'none') return;
+        syncState({ cells: history[history.length - 1] }); setHistory(past => past.slice(0, -1));
+      };
+
+      const handleReset = () => {
+        syncState({ cells: cells.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null })), strokes: [], startTime: Date.now() });
+        if (engineRef.current === 'none') setHistory([]);
+        setIsWon(false); setEndTime(null);
+        setSelectedChar(null);
+      };
+
+      const generateAndSync = (sId, dId) => {
+        setIsGenerating(true);
+        setTimeout(() => {
+            purgeGhostPlayers();
+            const newData = generateSudoku(sId, dId);
+            syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now() });
+            setIsWon(false); setHistory([]); setZoomLevel(1); setZoomModeIdx(0); setEndTime(null); setHideVictoryModal(false);
+            setSelectedChar(null); // 產生新局時淨空選擇
+            setIsGenerating(false);
+        }, 100);
+      };
+
+      const handleSizeChange = (e) => { if (engineRef.current === 'none' || isHostRef.current) generateAndSync(Number(e.target.value), diffId); };
+      const handleDiffChange = (e) => { if (engineRef.current === 'none' || isHostRef.current) generateAndSync(sizeId, e.target.value); };
+      const handleRegenerateRandom = () => { generateAndSync(sizeId, diffId); };
+
+      const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
+      const triggerRegenerate = () => { setIsClosingModal(true); setTimeout(() => { setIsClosingModal(false); handleRegenerateRandom(); }, 300); };
+
+      const switchToOffline = () => {
+        if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+        setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false;
+        setRoomId(""); setPlayersList([]); roomRef.current = null; connsRef.current = []; connRef.current = null;
+        setCursors({}); setRipples([]); setInteractionMode(0);
+      };
+
+      const startSinglePlayer = () => { switchToOffline(); setScreen('game'); handleReset(); setIsHeaderCollapsed(false); };
+
+      const initiateHostGame = () => {
+        const pName = tempPlayerName.trim(); if (!pName) return showToast("⚠️ 請先設定顯示暱稱");
+        setIsConnecting(true); const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
+        if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; setupFirebase(finalId, pName, true); } else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(finalId, pName, true); }
+      };
+
+      const joinExistingGame = () => {
+        const pName = tempPlayerName.trim(); const rId = tempRoomId.trim().toUpperCase(); if (!pName || !rId) return showToast("⚠️ 請完整輸入暱稱與代碼");
+        setIsConnecting(true); if (/^[a-zA-Z]/.test(rId)) { setEngine('firebase'); engineRef.current = 'firebase'; setupFirebase(rId, pName, false); } else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(rId, pName, false); }
+      };
+
+      const setupFirebase = async (rId, pName, isCreating) => {
+        if (authError) { setIsConnecting(false); return showToast("⚠️ Firebase 設定錯誤: " + authError); }
+        if (!user) { setIsConnecting(false); return showToast("⚠️ 伺服器連線中，請稍後"); }
+        const rDoc = doc(db, 'artifacts', typeof __app_id !== 'undefined' && __app_id ? __app_id : 'default-app-id', 'public', 'data', 'rooms', rId); roomRef.current = rDoc;
+        const timeout = (ms) => new Promise((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), ms));
+
+        try {
+          if (isCreating) {
+            setIsHost(true); isHostRef.current = true;
+            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([])}], gameState: JSON.parse(JSON.stringify(stateRef.current)), updatedAt: Date.now() }), timeout(6000)]);
+          } else {
+            const snap = await Promise.race([getDoc(rDoc), timeout(6000)]);
+            if (!snap.exists()) { setIsConnecting(false); switchToOffline(); return showToast("⚠️ 找不到該對局大廳，請確認代碼"); }
+            setIsHost(false); isHostRef.current = false;
+            let pList = snap.data().players || []; const meIndex = pList.findIndex(p => p.id === myId);
+            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList) }); else pList[meIndex].name = pName;
+            await Promise.race([updateDoc(rDoc, { players: pList, updatedAt: Date.now() }), timeout(6000)]);
+          }
+          setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false);
+          unsubRef.current = onSnapshot(rDoc, function(docSnap) {
+            if (!docSnap.exists()) { showToast("⚠️ 房主已斷線，切換為單機模式"); switchToOffline(); return; }
+            const data = docSnap.data(); const serverPlayers = data.players || []; setPlayersList(serverPlayers);
+            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current }] }).catch(e => {});
+            if (data.gameState) {
+              const gs = data.gameState;
+              if (gs.cells) setCells(gs.cells); if (gs.levelData) setLevelData(gs.levelData);
+              if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
+              if (gs.startTime) setStartTime(gs.startTime); if (gs.strokes !== undefined) setStrokes(gs.strokes);
+              stateRef.current = gs;
+            }
+          }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
+        } catch(e) { setIsConnecting(false); switchToOffline(); showToast(e.message === "TIMEOUT" ? "⚠️ 連線逾時！請確認權限" : "⚠️ 雲端連線失敗"); }
+      };
+
+      const setupPeerJS = (rId, pName, isCreating) => {
+        if (isCreating) {
+            const p = new Peer(rId + '-host'); peerRef.current = p;
+            p.on('open', function() {
+              setIsHost(true); isHostRef.current = true; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]) }]);
+              p.on('connection', function(c) {
+                connsRef.current.push(c);
+                c.on('data', function(m) {
+                  if (m.type === 'JOIN') {
+                      c.uid = m.uid; 
+                      setPlayersList(prev => {
+                          let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName, isHost: false, color: m.color || getAvailableColor(prev) }];
+                          connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: stateRef.current, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList;
+                      });
+                  } else if (m.type === 'LEAVE') {
+                      setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
+                  } else if (m.type === 'SYNC') {
+                      syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
+                  } else if (m.type === 'REQ_COLOR_CHANGE') {
+                      setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+                  } else if (m.type === 'CURSOR') {
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
+                  } else if (m.type === 'CLICK') {
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
+                  }
+                });
+                c.on('close', function() {
+                    connsRef.current = connsRef.current.filter(conn => conn.peer !== c.peer);
+                    if (c.uid) setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== c.uid); connsRef.current.forEach(conn => { if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
+                });
+              });
+            });
+            p.on('error', function() { setIsConnecting(false); switchToOffline(); showToast("⚠️ 無法建立對局大廳，請重試"); });
+        } else {
+            const guestP = new Peer(); peerRef.current = guestP;
+            guestP.on('open', function() {
+                const c = guestP.connect(rId + '-host'); connRef.current = c;
+                c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName, uid: myId }); });
+                c.on('data', function(m) {
+                  if (m.type === 'INIT') { if (m.players) setPlayersList(m.players); if (m.data) syncState(m.data, false); }
+                  else if (m.type === 'SYNC') syncState(m.data, false);
+                  else if (m.type === 'PLAYERS_UPDATE') { if (m.players) setPlayersList(m.players); }
+                  else if (m.type === 'CURSOR') setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
+                  else if (m.type === 'CLICK') setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
+                  else if (m.type === 'REQ_REJOIN') connRef.current.send({ type: 'JOIN', pName: myNameRef.current, uid: myId, color: myColorRef.current });
+                });
+                c.on('close', function() { showToast("⚠️ 主機已離線，切換為單機模式"); switchToOffline(); });
+            });
+            guestP.on('error', function() { setIsConnecting(false); switchToOffline(); showToast("⚠️ 無法連線，請確認代碼"); });
+        }
+      };
+
+      const handleGoHome = () => {
+        if (engineRef.current !== 'none') {
+            if (unsubRef.current) unsubRef.current();
+            if (isHostRef.current && engineRef.current === 'firebase' && roomRef.current) deleteDoc(roomRef.current).catch(e => {});
+            else if (!isHostRef.current && engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { players: playersListRef.current.filter(p => p.id !== myId) }).catch(e => {});
+            if (!isHostRef.current && engineRef.current === 'peerjs' && connRef.current) { connRef.current.send({ type: 'LEAVE', uid: myId }); setTimeout(() => { if (peerRef.current) { peerRef.current.destroy(); peerRef.current = null; } }, 100); }
+            else if (peerRef.current) { peerRef.current.destroy(); peerRef.current = null; }
+        }
+        switchToOffline(); setScreen('home'); setIsWon(false); setEndTime(null); setHistory([]);
+      };
+
+      const handlePlayerColorChange = (playerId, newColor) => {
+        if (engineRef.current === 'none') return;
+        if (engineRef.current === 'firebase' && roomRef.current) {
+            const nList = playersList.map(p => p.id === playerId ? { ...p, color: newColor } : p); setPlayersList(nList); updateDoc(roomRef.current, { players: nList }).catch(e => {});
+        } else if (engineRef.current === 'peerjs') {
+            if (isHostRef.current) setPlayersList(prev => { const nList = prev.map(p => p.id === playerId ? { ...p, color: newColor } : p); connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+            else if (connRef.current) connRef.current.send({ type: 'REQ_COLOR_CHANGE', targetId: playerId, color: newColor });
+        }
+      };
+
+      // 計算衝突
+      const conflictCellIds = useMemo(() => {
+        const conflicts = new Set();
+        const grid = Array(cSizeDef.size).fill(null).map(() => Array(cSizeDef.size).fill(null));
+        cells.forEach(c => { if (c.value) grid[c.y][c.x] = c; });
+
+        for (let i=0; i<cSizeDef.size; i++) {
+            const rowSeen = {}; const colSeen = {};
+            for (let j=0; j<cSizeDef.size; j++) {
+                let cr = grid[i][j]; if (cr) { if (rowSeen[cr.value]) { conflicts.add(cr.id); conflicts.add(rowSeen[cr.value].id); } else rowSeen[cr.value] = cr; }
+                let cc = grid[j][i]; if (cc) { if (colSeen[cc.value]) { conflicts.add(cc.id); conflicts.add(colSeen[cc.value].id); } else colSeen[cc.value] = cc; }
+            }
+        }
+        for (let by=0; by<cSizeDef.size; by+=cSizeDef.boxH) {
+            for (let bx=0; bx<cSizeDef.size; bx+=cSizeDef.boxW) {
+                const boxSeen = {};
+                for (let dy=0; dy<cSizeDef.boxH; dy++) {
+                    for (let dx=0; dx<cSizeDef.boxW; dx++) {
+                        let cb = grid[by+dy][bx+dx];
+                        if (cb) { if (boxSeen[cb.value]) { conflicts.add(cb.id); conflicts.add(boxSeen[cb.value].id); } else boxSeen[cb.value] = cb; }
+                    }
+                }
+            }
+        }
+        return conflicts;
+      }, [cells, cSizeDef]);
+
+      // 選項 Y: 輔助高亮系統 (十字與宮格)
+      const highlightZones = useMemo(() => {
+          const zones = new Set();
+          if (selectedChar !== null && interactionMode < 2) {
+              cells.forEach(c => {
+                  if (c.value === selectedChar) {
+                      for (let i = 0; i < cSizeDef.size; i++) {
+                          zones.add(`${c.x}-${i}`); 
+                          zones.add(`${i}-${c.y}`); 
+                      }
+                      const bx = Math.floor(c.x / cSizeDef.boxW) * cSizeDef.boxW;
+                      const by = Math.floor(c.y / cSizeDef.boxH) * cSizeDef.boxH;
+                      for(let dy=0; dy<cSizeDef.boxH; dy++) {
+                          for(let dx=0; dx<cSizeDef.boxW; dx++) {
+                              zones.add(`${bx+dx}-${by+dy}`);
+                          }
+                      }
+                  }
+              });
+          }
+          return zones;
+      }, [cells, selectedChar, cSizeDef, interactionMode]);
+
+      useEffect(function() {
+        if (!cells || cells.length === 0) return;
+        if (cells.every(c => c.value !== null) && conflictCellIds.size === 0) {
+            if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); }
+        } else if (isWon) { setIsWon(false); setEndTime(null); }
+      }, [cells, conflictCellIds, isWon]);
+
+      const handleSaveCode = () => {
+        const saveData = { sId: sizeId, dId: diffId, l: levelData, c: cells.map(c => ({ i: c.id, v: c.value, d: c.drafts, o: c.owner })), s: strokes };
+        const code = btoa(encodeURIComponent(JSON.stringify(saveData))); setSaveCode(code);
+        const ta = document.createElement("textarea"); ta.value = code; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); showToast("✅ 已產生並複製代碼！"); } catch (err) {} document.body.removeChild(ta);
+      };
+      
+      const handleQuickPaste = async () => {
+        try { if (navigator.clipboard && navigator.clipboard.readText) { const text = await navigator.clipboard.readText(); if(text) { setSaveCode(text); showToast("✅ 貼上成功！"); } } else throw new Error(); } 
+        catch (err) { const ta = document.getElementById("saveCodeTextarea"); if (ta) ta.focus(); showToast("⚠️ 請手動貼上"); }
+      };
+      
+      const handleLoadCode = () => {
+        try {
+          if (!saveCode.trim()) return showToast("⚠️ 請貼上代碼");
+          const data = JSON.parse(decodeURIComponent(atob(saveCode.trim())));
+          const restoredCells = data.l.cells.map(c => { const saved = data.c.find(sc => sc.i === c.id); return saved ? { ...c, value: saved.v, drafts: saved.d || [], owner: saved.o } : c; });
+          syncState({ sizeId: data.sId, diffId: data.dId, levelData: data.l, cells: restoredCells, strokes: data.s || [] });
+          setIsWon(false); setShowSaveModal(false); showToast("✅ 讀取成功！");
+          setSelectedChar(null); // 讀檔後淨空選擇
+        } catch(e) { showToast("⚠️ 讀檔失敗！"); }
+      };
+
+      const handleZoomIn = () => { let nz = Math.min(zoomLevelRef.current + 0.3, 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) { nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH); showToast("⚠️ 已達顯示極限"); } zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
+      const handleZoomOut = () => { let nz = Math.max(zoomLevelRef.current - 0.3, 0.4); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
+      const handleZoomReset = () => { zoomLevelRef.current = 1; setZoomLevel(1); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW}px`; svgRef.current.style.height = `${svgH}px`; } };
+
+      const handleCycleZoom = () => {
+        const ni = (zoomModeIdxRef.current + 1) % 4; setZoomModeIdx(ni); zoomModeIdxRef.current = ni;
+        const c = zoomContainerRef.current; if (!c) return; const pf = 0.95; const cw = c.clientWidth; const ch = c.clientHeight;
+        let nz = 1; if (ni === 0) { nz = 1; showToast("🔍 原始大小 (1x)"); } else if (ni === 1) { nz = (cw / svgW) * pf; showToast("↔️ 適應寬度"); } else if (ni === 2) { nz = (ch / svgH) * pf; showToast("↕️ 適應長度"); } else { nz = Math.min(cw / svgW, ch / svgH) * pf; showToast("🔲 長寬適應"); }
+        nz = Math.min(Math.max(nz, 0.2), 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH);
+        zoomLevelRef.current = nz; setZoomLevel(nz); if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; }
+      };
+
+      if (screen === 'home') {
+        return (
+          <div className="h-screen w-screen flex flex-col items-center justify-center p-4 relative overflow-hidden animate-fadeIn">
+            <div className="flex-1 flex flex-col justify-center w-full max-w-md items-center">
+              <div className="bg-[#fffaf0] border-4 border-slate-800 p-10 rounded-xl shadow-[8px_8px_0px_rgba(30,41,59,1)] w-full text-center relative transform -rotate-1 z-10">
+                 <h1 className="text-6xl font-black text-slate-800 mb-6 tracking-widest flex justify-center gap-3">
+                    <span className="inline-block bg-[#ffcc00] px-4 py-2 border-4 border-slate-800 rounded-xl transform rotate-3 shadow-[4px_4px_0px_rgba(30,41,59,1)]">數</span>
+                    <span className="inline-block bg-[#ffcc00] px-4 py-2 border-4 border-slate-800 rounded-xl transform -rotate-2 shadow-[4px_4px_0px_rgba(30,41,59,1)]">獨</span>
+                 </h1>
+                 <div className="inline-block border-[3px] border-dashed border-slate-800 rounded-xl px-6 py-2 mb-8 bg-white shadow-[4px_4px_0px_rgba(30,41,59,1)] transform rotate-2">
+                    <p className="text-slate-800 font-black text-xl tracking-widest uppercase italic">Sudoku Master</p>
+                 </div>
+                 <div className="flex flex-col gap-5">
+                    <button onClick={startSinglePlayer} className="w-full py-4 bg-white border-4 border-slate-800 rounded-xl font-black text-xl text-slate-800 shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all transform rotate-1">👤 單機挑戰</button>
+                    <button onClick={() => setScreen('join')} className="w-full py-4 bg-emerald-400 border-4 border-slate-800 rounded-xl font-black text-xl text-slate-900 shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all transform -rotate-1">🌐 多人合作</button>
+                 </div>
+              </div>
+            </div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 數獨連線. (v2.1 智慧選取版)</div>
+          </div>
+        );
+      }
+
+      if (screen === 'join') {
+        return (
+          <div className="h-screen w-screen flex flex-col items-center justify-center p-4 relative animate-fadeIn">
+            <div className="bg-[#fffaf0] border-4 border-slate-800 p-8 rounded-xl shadow-[10px_10px_0px_rgba(30,41,59,1)] max-w-2xl w-full z-10 transform rotate-1">
+              <h2 onClick={() => { const nc = titleClicks + 1; if (nc >= 3) { setStableMode(!stableMode); setTitleClicks(0); } else setTitleClicks(nc); }} className="text-2xl font-black text-slate-800 mb-6 inline-block border-b-4 border-[#ffcc00] pb-1 cursor-pointer select-none">🌐 多人連線選單</h2>
+              <div className="mb-6 bg-white p-4 rounded-lg border-2 border-slate-800 shadow-[4px_4px_0px_rgba(30,41,59,1)]">
+                <label className="block text-slate-800 font-black text-sm mb-2">第一步：設定顯示暱稱</label>
+                <input type="text" placeholder="例如：王小明" value={tempPlayerName} onChange={(e) => setTempPlayerName(e.target.value)} disabled={isConnecting} className="w-full border-2 border-slate-800 rounded-md p-3 font-bold bg-yellow-50 outline-none focus:ring-2 ring-[#ffcc00] disabled:opacity-50" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="border-t-4 md:border-t-0 md:border-r-4 border-dashed border-slate-300 pt-4 md:pt-0 md:pr-6 flex flex-col h-full">
+                   <h3 className="font-black text-lg mb-2 flex items-center gap-2 text-slate-800">👑 建立對局大廳</h3>
+                   <p className="text-xs text-slate-600 mb-4 font-bold leading-relaxed">擔任對局主機，系統會自動分派一組邀請碼供其他玩家加入。</p>
+                   <div className="mt-auto">
+                     {stableMode && <div className="text-xs font-black text-emerald-600 mb-2 animate-pulse">✓ 雲端模式準備就緒</div>}
+                     <button onClick={initiateHostGame} disabled={isConnecting} className="w-full py-3 bg-blue-500 text-white border-4 border-slate-800 rounded-xl font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all disabled:opacity-50 disabled:cursor-not-allowed uppercase">{isConnecting ? "建立中..." : "發起多人對局"}</button>
+                   </div>
+                </div>
+                <div className="pt-4 md:pt-0 flex flex-col h-full">
+                   <h3 className="font-black text-lg mb-2 flex items-center gap-2 text-slate-800">👤 參與現有對局</h3>
+                   <p className="text-xs text-slate-600 mb-2 font-bold leading-relaxed">請輸入主機分派的 4 碼邀請碼：</p>
+                   <input type="text" maxLength="5" placeholder="邀請碼" value={tempRoomId} onChange={(e) => setTempRoomId(e.target.value.toUpperCase())} disabled={isConnecting} className="w-full border-4 border-slate-800 rounded-xl p-3 font-black text-center text-2xl mb-4 tracking-widest outline-none bg-emerald-50 uppercase shadow-[4px_4px_0px_rgba(30,41,59,1)] disabled:opacity-50" />
+                   <button onClick={joinExistingGame} disabled={isConnecting} className="w-full py-3 bg-emerald-400 text-slate-900 border-4 border-slate-800 rounded-xl font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all mt-auto disabled:opacity-50 disabled:cursor-not-allowed uppercase">{isConnecting ? "加入中..." : "參與對局連線"}</button>
+                </div>
+              </div>
+              <button onClick={() => setScreen('home')} disabled={isConnecting} className="mt-8 w-full text-slate-400 font-bold hover:text-slate-800 hover:underline text-center transition-colors disabled:opacity-50">取消返回主選單</button>
+            </div>
+            {toastMsg && <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full font-bold shadow-[0_4px_10px_rgba(0,0,0,0.3)] z-[100] border-[3px] border-white animate-slideUpFade">{toastMsg}</div>}
+          </div>
+        );
+      }
+
+      return (
+        <div className="h-screen w-screen p-1 md:p-4 flex flex-col items-center font-sans relative" style={{ backgroundColor: '#fdf5e6', backgroundImage: 'radial-gradient(#d3c5ab 2px, transparent 2px)', backgroundSize: '12px 12px' }}>
+          <div className="w-full max-w-[1200px] bg-[#fffaf0] rounded-xl border-4 border-slate-800 shadow-[8px_8px_0px_rgba(30,41,59,1)] flex flex-col h-full relative z-10 overflow-hidden">
+            
+            <div className={`bg-[#ffcc00] border-b-4 border-slate-800 shrink-0 z-50 relative transition-all duration-300 ease-in-out px-2 md:px-4 py-2 flex flex-col gap-2`}>
+               <div className="flex items-center justify-between gap-1 w-full">
+                  <div className="flex items-center gap-2 flex-wrap">
+                     <h1 className="font-black tracking-tight uppercase text-lg md:text-2xl text-[#2d2a26] flex items-center gap-1">🔢<span className="hidden sm:inline">數獨</span></h1>
+                     <div className="flex items-center gap-1 bg-[#2d2a26] text-white px-2 py-1 rounded-md font-mono font-bold shadow-[2px_2px_0px_rgba(0,0,0,0.4)] text-xs md:text-sm whitespace-nowrap">
+                        <GameTimer startTime={startTime} endTime={endTime} isRunning={!isWon && screen === 'game'} />
+                     </div>
+                     {isMultiplayer && ( <span className="bg-emerald-400 text-slate-900 px-2 py-1 rounded-md border-2 border-slate-800 font-black text-xs md:text-sm shadow-[2px_2px_0px_rgba(30,41,59,1)] flex items-center gap-1 whitespace-nowrap">{isHostRef.current ? '👑 主機' : '👤 玩家'} | 代碼: {roomId} {engineRef.current === 'firebase' && '☁️'}</span> )}
+                  </div>
+                  <button onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)} className="flex px-2 md:px-3 py-1 bg-[#2d2a26] text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_rgba(0,0,0,0.3)] hover:bg-slate-800 items-center gap-1 whitespace-nowrap">{isHeaderCollapsed ? '🔽 展開規則' : '🔼 縮小面板'}</button>
+               </div>
+
+               <div className={`w-full overflow-hidden transition-all duration-500 ease-in-out origin-top flex flex-col gap-2 ${isHeaderCollapsed ? 'max-h-0 opacity-0 scale-y-95' : 'max-h-[500px] opacity-100 scale-y-100'}`}>
+                  <div className="bg-white border-[3px] border-[#2d2a26] rounded-xl p-3 text-[#2d2a26] shadow-[4px_4px_0px_#2d2a26] flex flex-col md:flex-row gap-3">
+                     <div className="flex-1">
+                        <h3 className="text-sm md:text-base font-black mb-1 border-b-[3px] border-[#ffcc00] inline-block pb-0.5">📜 遊戲規則</h3>
+                        <ol className="list-decimal list-outside ml-4 space-y-1 text-xs md:text-sm leading-relaxed font-bold">
+                           <li>選擇下方數字點擊方格。若不選下方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
+                           <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
+                           <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
+                           <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
+                        </ol>
+                     </div>
+                  </div>
+               </div>
+
+               <div className="flex flex-wrap gap-1.5 items-center justify-between w-full">
+                  <div className="flex gap-2 items-center">
+                      <select disabled={isMultiplayer && !isHostRef.current} value={sizeId} onChange={handleSizeChange} className="px-1 py-1 md:px-2 md:py-1.5 rounded-md border-2 border-[#2d2a26] font-bold bg-white text-[#2d2a26] text-xs md:text-sm outline-none shadow-[2px_2px_0px_#2d2a26] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+                         {SIZES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                      <select disabled={isMultiplayer && !isHostRef.current} value={diffId} onChange={handleDiffChange} className="px-1 py-1 md:px-2 md:py-1.5 rounded-md border-2 border-[#2d2a26] font-bold bg-white text-[#2d2a26] text-xs md:text-sm outline-none shadow-[2px_2px_0px_#2d2a26] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+                         {DIFFICULTIES.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      </select>
+                  </div>
+                  
+                  <div className="flex gap-1 md:gap-2 flex-wrap items-center ml-auto">
+                     <button onClick={handleRegenerateRandom} disabled={isMultiplayer && !isHostRef.current} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1 disabled:opacity-50" title="新題">🎲<span className="hidden sm:inline">新題</span></button>
+                     {!isMultiplayer && ( <button onClick={handleUndo} disabled={history.length === 0 || isWon} className="px-2 py-1 md:px-3 md:py-1.5 bg-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] disabled:opacity-50 disabled:shadow-none active:translate-y-1 active:shadow-none transition-all flex items-center gap-1 text-[#2d2a26]" title="復原">↩️<span className="hidden sm:inline">復原</span></button> )}
+                     <button onClick={handleReset} className="px-2 py-1 md:px-3 md:py-1.5 bg-red-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="重置">🔄<span className="hidden sm:inline">重置</span></button>
+                     <button onClick={() => setShowSaveModal(true)} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="存檔/讀檔">💾<span className="hidden sm:inline">存檔</span></button>
+                     <button onClick={handleGoHome} className="bg-white text-[#2d2a26] border-2 border-[#2d2a26] px-2 py-1 md:px-3 md:py-1.5 rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="回首頁/斷線">{!isMultiplayer ? '🏠' : '🔌'}<span className="hidden sm:inline ml-1">{!isMultiplayer ? '回首頁' : '退出'}</span></button>
+                  </div>
+               </div>
+            </div>
+
+            {isMultiplayer && (
+              <div className="px-4 py-2 bg-[#fffdfa] border-b-4 border-slate-800 flex flex-wrap gap-2 items-center relative z-40 shadow-inner shrink-0">
+                <span className="font-black text-slate-800 text-sm">👥 連線玩家：</span>
+                {playersList.map((p, idx) => {
+                  const isMe = p.id === myId; const isRainbow = p.color === 'rainbow';
+                  return (
+                    <div key={idx} className="relative inline-flex">
+                      <span onClick={() => setColorPickerTarget(prev => prev === p.id ? null : p.id)} title={isMe ? "點擊切換顏色" : "點擊為玩家換色"} className="px-2 py-0.5 rounded text-xs font-bold bg-white text-slate-800 flex items-center shadow-[1px_1px_0px_rgba(30,41,59,1)] cursor-pointer hover:bg-slate-100 transition-colors relative border-2 border-slate-800" style={{ borderLeftWidth: '6px', borderLeftColor: isRainbow ? 'transparent' : p.color }}>
+                        {isRainbow && ( <svg className="absolute top-[-2px] left-[-6px] w-[6px] pointer-events-none" style={{ height: 'calc(100% + 4px)', borderRadius: '2px 0 0 2px' }}><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
+                        {p.name} {p.isHost && '👑'} {isMe && '(你)'}
+                      </span>
+                      {colorPickerTarget === p.id && (
+                        <div className="absolute top-full mt-2 left-0 sm:left-0 bg-[#fffdfa] border-[3px] border-slate-800 rounded-xl p-3 shadow-[4px_4px_0px_rgba(30,41,59,1)] z-[100] w-[180px] animate-fadeIn">
+                          <div className="flex justify-between items-center mb-2 border-b-2 border-slate-800 pb-1">
+                            <h3 className="text-xs font-black text-slate-800">🎨 選色</h3><button onClick={(e) => { e.stopPropagation(); setColorPickerTarget(null); setColorSeq([]); }} className="text-slate-400 hover:text-slate-800 font-black leading-none">✕</button>
+                          </div>
+                          <div className="grid grid-cols-5 gap-1.5">
+                            {COLORS.map(color => (
+                              <button key={color} onClick={(e) => { e.stopPropagation(); const colorIdx = COLORS.indexOf(color); let newSeq = [...colorSeq, colorIdx]; const targetSeq = [0, 4, 15, 19]; let isValid = true; for (let i = 0; i < newSeq.length; i++) { if (newSeq[i] !== targetSeq[i]) { isValid = false; break; } } if (isValid) { setColorSeq(newSeq); if (newSeq.length === 4) { handlePlayerColorChange(p.id, 'rainbow'); setColorPickerTarget(null); showToast("🌈 解鎖隱藏彩色漸變！"); setColorSeq([]); } else handlePlayerColorChange(p.id, color); } else { setColorSeq([]); handlePlayerColorChange(p.id, color); setColorPickerTarget(null); } }} className="w-6 h-6 rounded-full border-[2px] border-slate-800 shadow-[1px_1px_0px_rgba(30,41,59,1)] hover:scale-110 hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all active:scale-95 active:shadow-none" style={{ backgroundColor: color }} title={color} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {engineRef.current === 'peerjs' && (
+                  <div className="ml-auto flex items-center">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs md:text-sm font-bold text-slate-700 hover:text-slate-900 bg-slate-100 px-2 py-1 rounded-md border-2 border-slate-300 shadow-[1px_1px_0px_rgba(30,41,59,1)] transition-colors hover:bg-slate-200">
+                      <input type="checkbox" checked={showOtherCursors} onChange={(e) => setShowOtherCursors(e.target.checked)} className="w-3.5 h-3.5 md:w-4 md:h-4 accent-emerald-500" />顯示游標
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!isHeaderCollapsed && (
+              <div className="h-8 shrink-0 flex items-center justify-center bg-slate-800 text-white border-b-4 border-slate-800 relative z-30 font-bold tracking-wide">
+                <span className="text-xs md:text-sm hidden md:inline">支援滑鼠拖曳、滾輪縮放；向下滑動畫布可自動收合選單。</span>
+                <span className="text-xs md:text-sm md:hidden">點選下方數字再點擊方格。支援雙指縮放與平移。</span>
+              </div>
+            )}
+
+            <div className="relative z-0 flex-1 flex flex-col min-h-0 bg-[#fffaf0]">
+              
+              {isGenerating && (
+                <div className="absolute inset-0 z-[40] flex items-center justify-center pointer-events-none bg-[#fffaf0]/60 backdrop-blur-sm">
+                  <div className="text-slate-800/80 font-black text-3xl md:text-5xl tracking-widest flex items-center select-none animate-pulse">
+                    唯一解驗證中<span className="animate-loading-dots inline-block w-[1.5em] text-left"></span>
+                  </div>
+                </div>
+              )}
+
+              <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 flex flex-col gap-2 md:gap-3 z-[5] pointer-events-auto items-end">
+                <div className="flex items-center">
+                   {interactionMode === 2 && (
+                       <div className="flex items-center gap-2 animate-fadeIn bg-white/80 p-1.5 rounded-full border-2 border-slate-300 backdrop-blur-sm mr-2 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
+                           <button onClick={() => setDrawSubMode('pen')} className={`w-9 h-9 md:w-10 md:h-10 border-2 border-slate-800 rounded-full font-black text-lg flex items-center justify-center shadow-sm transition-[transform,color] relative overflow-hidden ${drawSubMode === 'pen' ? 'text-white scale-110 shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100'}`} style={drawSubMode === 'pen' && myCurrentColor !== 'rainbow' ? { backgroundColor: myCurrentColor } : { backgroundColor: drawSubMode === 'pen' && myCurrentColor === 'rainbow' ? 'transparent' : undefined }} title="畫筆">
+                               {drawSubMode === 'pen' && myCurrentColor === 'rainbow' && ( <svg className="absolute inset-0 w-full h-full pointer-events-none -z-10"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
+                               <span className="relative z-10">🖌️</span>
+                           </button>
+                           <button onClick={() => setDrawSubMode('eraser')} onDoubleClick={clearOwnStrokes} className={`w-9 h-9 md:w-10 md:h-10 border-2 border-slate-800 rounded-full font-black text-lg flex items-center justify-center shadow-sm transition-[transform,color] relative overflow-hidden ${drawSubMode === 'eraser' ? 'text-white scale-110 shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100'}`} style={drawSubMode === 'eraser' && myCurrentColor !== 'rainbow' ? { backgroundColor: myCurrentColor } : { backgroundColor: drawSubMode === 'eraser' && myCurrentColor === 'rainbow' ? 'transparent' : undefined }} title="橡皮擦 (連點兩下清空自己的塗鴉)">
+                               {drawSubMode === 'eraser' && myCurrentColor === 'rainbow' && ( <svg className="absolute inset-0 w-full h-full pointer-events-none -z-10"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
+                               <span className="relative z-10">🧽</span>
+                           </button>
+                           {isHostRef.current && ( <button onClick={clearAllStrokes} className={`w-9 h-9 md:w-10 md:h-10 bg-red-500 hover:bg-red-600 text-white border-2 border-slate-800 rounded-full font-black text-lg transition-all flex items-center justify-center shadow-sm ml-1`} title="房主特權：清空所有人塗鴉">🚨</button> )}
+                       </div>
+                   )}
+                   <button onClick={toggleInteractionMode} title={`切換模式 (目前: ${modeTitles[interactionMode]})`} className={`w-10 h-10 md:w-12 md:h-12 border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none transition-all flex items-center justify-center ${interactionMode > 0 ? 'bg-[#ffcc00] text-slate-800' : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}>
+                     {modeIcons[interactionMode]}
+                   </button>
+                </div>
+                <button onClick={handleZoomIn} title="放大" className="w-10 h-10 md:w-12 md:h-12 bg-white border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] hover:bg-slate-100 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-slate-800">＋</button>
+                <button onClick={handleZoomOut} title="縮小" className="w-10 h-10 md:w-12 md:h-12 bg-white border-2 border-slate-800 rounded-full font-black text-2xl md:text-3xl shadow-[3px_3px_0px_rgba(30,41,59,1)] hover:bg-slate-100 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-slate-800">－</button>
+                <button onClick={handleCycleZoom} title="循環切換縮放模式" className="w-10 h-10 md:w-12 md:h-12 bg-slate-800 border-2 border-slate-800 rounded-full font-black text-xs md:text-sm shadow-[3px_3px_0px_rgba(0,0,0,0.3)] hover:bg-slate-700 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-white">
+                  {zoomModeIdx === 0 ? '1x' : zoomModeIdx === 1 ? '↔️' : zoomModeIdx === 2 ? '↕️' : '🔲'}
+                </button>
+              </div>
+
+              <div ref={zoomContainerRef} className="p-2 md:p-6 flex-1 overflow-auto custom-scrollbar relative z-0">
+                <div className="flex justify-center items-center min-w-max min-h-max m-auto pb-10 pr-20">
+                  <svg 
+                    ref={svgRef}
+                    onPointerMove={handlePointerMove}
+                    onPointerDown={handlePointerDown}
+                    onPointerUp={handlePointerUp}
+                    onPointerLeave={(e) => { handlePointerUp(e); if(eraserRef.current) eraserRef.current.style.display = 'none'; }}
+                    onPointerCancel={handlePointerUp}
+                    viewBox={`0 0 ${svgW} ${svgH}`} 
+                    className="bg-transparent transition-transform duration-100 ease-out origin-center select-none" 
+                    style={{ width: `${svgW * zoomLevel}px`, height: `${svgH * zoomLevel}px`, touchAction: (interactionMode >= 2) ? 'none' : 'manipulation' }}>
+                    <defs>
+                      <linearGradient id="rainbowGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={svgW} y2={svgH}>
+                          <stop offset="0%" className="rainbow-stop" />
+                          <stop offset="100%" className="rainbow-stop" />
+                      </linearGradient>
+                    </defs>
+
+                    <g transform={`translate(${PADDING}, ${PADDING})`}>
+                        {/* 背景與高亮 */}
+                        {cells.map(cell => {
+                            const hasConflict = conflictCellIds.has(cell.id);
+                            const isExactMatch = selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
+                            const isHighlightZone = highlightZones.has(cell.id);
+                            
+                            let fillColor = '#ffffff';
+                            if (hasConflict) fillColor = '#fee2e2'; 
+                            else if (isExactMatch) fillColor = '#fde047'; 
+                            else if (isHighlightZone) fillColor = '#fef08a'; 
+                            
+                            return (
+                                <rect key={`bg-${cell.id}`} x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={fillColor} className="transition-colors duration-300 pointer-events-none" />
+                            );
+                        })}
+
+                        {/* 網格線 */}
+                        {Array.from({ length: cSizeDef.size + 1 }).map((_, i) => {
+                            const isThickX = i % cSizeDef.boxW === 0; const isThickY = i % cSizeDef.boxH === 0;
+                            return (
+                                <g key={`grid-line-${i}`} className="pointer-events-none">
+                                    <line x1={i * CELL_SIZE} y1={0} x2={i * CELL_SIZE} y2={cSizeDef.size * CELL_SIZE} stroke="#1e293b" strokeWidth={isThickX ? 4 : 1} strokeLinecap={isThickX ? 'square' : 'butt'} />
+                                    <line x1={0} y1={i * CELL_SIZE} x2={cSizeDef.size * CELL_SIZE} y2={i * CELL_SIZE} stroke="#1e293b" strokeWidth={isThickY ? 4 : 1} strokeLinecap={isThickY ? 'square' : 'butt'} />
+                                </g>
+                            );
+                        })}
+
+                        {/* 點擊熱區與數字內容 */}
+                        {cells.map(cell => {
+                            const cx = cell.x * CELL_SIZE; const cy = cell.y * CELL_SIZE;
+                            let valColor = "#1e293b"; let isRainbow = false;
+                            if (!cell.isGiven && cell.value && cell.owner) {
+                                valColor = getPlayerColor(cell.owner); if (valColor === 'rainbow') isRainbow = true;
+                            }
+
+                            return (
+                                <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
+                                    <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
+                                    {cell.value ? (
+                                        <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
+                                            {cell.value}
+                                        </text>
+                                    ) : (
+                                        cell.drafts.map(d => {
+                                            const idx = cSizeDef.chars.indexOf(d); let dx, dy, fontSize;
+                                            if (cSizeDef.size === 4) { dx = (idx % 2) * (CELL_SIZE/2) + (CELL_SIZE/4); dy = Math.floor(idx / 2) * (CELL_SIZE/2) + (CELL_SIZE/4); fontSize = CELL_SIZE * 0.3; } 
+                                            else if (cSizeDef.size === 9) { dx = (idx % 3) * (CELL_SIZE/3) + (CELL_SIZE/6); dy = Math.floor(idx / 3) * (CELL_SIZE/3) + (CELL_SIZE/6); fontSize = CELL_SIZE * 0.25; } 
+                                            else { dx = (idx % 4) * (CELL_SIZE/4) + (CELL_SIZE/8); dy = Math.floor(idx / 4) * (CELL_SIZE/4) + (CELL_SIZE/8); fontSize = CELL_SIZE * 0.18; }
+                                            return <text key={`draft-${d}`} x={cx + dx} y={cy + dy + 1} textAnchor="middle" dominantBaseline="central" fontSize={fontSize} fontWeight="bold" fill="#64748b" className="pointer-events-none select-none">{d}</text>;
+                                        })
+                                    )}
+                                </g>
+                            );
+                        })}
+                    </g>
+
+                    {/* 塗鴉筆跡 */}
+                    {strokes.map(s => {
+                        const strokeUid = s.uid || s.id.split('-')[1]; const isOwnStroke = strokeUid === myId;
+                        let strokeColor = s.color; let strokeOpacity = 1; let isRainbow = false;
+                        if (isMultiplayer && strokeUid) { strokeColor = getPlayerColor(strokeUid); if (strokeColor === 'rainbow') isRainbow = true; strokeOpacity = isOwnStroke ? 1 : 0.5; }
+                        return <path key={s.id} d={s.path} fill="none" stroke={isRainbow ? undefined : strokeColor} strokeOpacity={strokeOpacity} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`doodle-stroke ${isRainbow ? 'rainbow-stroke' : ''}`} data-stroke-id={s.id} style={{ pointerEvents: (interactionMode === 2 && drawSubMode === 'eraser' && isOwnStroke) ? 'stroke' : 'none' }} />;
+                    })}
+                    <path ref={drawingPathRef} fill="none" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeOpacity={1} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke' : ''}`} style={{ display: 'none' }} />
+                    <circle ref={eraserRef} r="15" fill={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} fillOpacity="0.4" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeWidth="2" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke rainbow-fill' : ''}`} style={{ display: 'none' }} />
+
+                    {showOtherCursors && engineRef.current === 'peerjs' && Object.entries(cursors).map(entry => {
+                        const uid = entry[0]; const pos = entry[1]; if (uid === myId) return null;
+                        const player = playersList.find(p => p.id === uid); if (!player) return null;
+                        const isRainbow = player.color === 'rainbow';
+                        return (
+                            <g key={`cursor-${uid}`} transform={`translate(${pos.x}, ${pos.y})`} className="pointer-events-none transition-transform duration-75 ease-linear">
+                               <path d="M0,0 L16,6 L10,10 L15,19 L11,21 L6,12 L0,18 Z" fill={isRainbow ? undefined : player.color} stroke="white" strokeWidth="2" className={isRainbow ? 'rainbow-fill' : ''} />
+                               <rect x="14" y="22" rx="4" ry="4" width={player.name.length * 14 + 12} height="22" fill="rgba(0,0,0,0.6)" />
+                               <text x="20" y="37" fill="white" fontSize="13" fontWeight="bold">{player.name}</text>
+                            </g>
+                        );
+                    })}
+                    {showOtherCursors && engineRef.current === 'peerjs' && ripples.map(r => {
+                        const player = playersList.find(p => p.id === r.uid); const color = player ? player.color : '#3b82f6'; const isRainbow = color === 'rainbow';
+                        return <circle key={r.id} cx={r.x} cy={r.y} r="20" fill="none" stroke={isRainbow ? undefined : color} className={`pointer-events-none ${isRainbow ? 'rainbow-stroke' : ''}`} style={{ transformOrigin: `${r.x}px ${r.y}px`, animation: 'rippleAnim 0.8s ease-out forwards' }} />;
+                    })}
+                  </svg>
+                </div>
+              </div>
+              
+              {/* 底部數字鍵盤 */}
+              <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-3 bg-[#f8fafc] border-t-[3px] border-slate-800 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto">
+                 {cSizeDef.chars.map(c => (
+                    <button
+                       key={c}
+                       onClick={() => setSelectedChar(prev => prev === c ? null : c)}
+                       className={`w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-transform active:translate-y-1 active:shadow-none flex items-center justify-center
+                       ${selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+                    >
+                       {c}
+                    </button>
+                 ))}
+              </div>
+
+              {isWon && !hideVictoryModal && (
+                <div className={`absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto ${isClosingModal ? 'animate-fadeOut' : 'animate-fadeIn'}`}>
+                  <div className={`bg-white rounded-2xl p-6 md:p-8 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] text-center min-w-[280px] md:min-w-[320px] relative ${isClosingModal ? 'animate-popOutCenter' : 'animate-popUpCenter'}`}>
+                    <button onClick={closeVictoryModal} className="absolute top-2 right-4 text-slate-400 hover:text-[#2d2a26] text-2xl font-black">✕</button>
+                    <div className="text-5xl md:text-6xl mb-3">💥🏆</div>
+                    <h2 className="text-2xl md:text-3xl font-black text-[#2d2a26] mb-2 uppercase tracking-wide">PERFECT!</h2>
+                    <p className="text-slate-600 mb-1 text-sm md:text-base font-bold">完美解開謎題，完全沒有衝突！</p>
+                    <p className="text-blue-600 mb-6 text-sm md:text-base font-bold border-b-[3px] border-dashed border-slate-300 pb-4">完成時間：{endTime ? formatTime(Math.floor((endTime - startTime) / 1000)) : "00:00"}</p>
+                    <div className="flex justify-center gap-3">
+                      <button onClick={triggerRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {isWon && hideVictoryModal && (
+                <div className="absolute bottom-20 inset-x-0 flex justify-center z-50 pointer-events-none">
+                  <button onClick={() => setHideVictoryModal(false)} className="pointer-events-auto bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] px-6 py-3 rounded-full shadow-[6px_6px_0px_#2d2a26] hover:translate-y-[2px] transition-all font-black flex items-center gap-2 tracking-wide text-lg">🏆 顯示成績</button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {showSaveModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+              <div className="bg-[#fffdfa] border-[4px] border-[#2d2a26] rounded-2xl p-6 shadow-[10px_10px_0px_rgba(30,41,59,1)] w-full max-w-md animate-popUp">
+                <h2 className="text-2xl font-black text-slate-800 mb-2 border-b-4 border-blue-500 inline-block pb-1">💾 存檔與讀檔</h2>
+                <p className="text-sm font-bold text-slate-600 mb-4">將進度轉換為代碼，下次貼上代碼即可恢復！</p>
+                <div className="mb-6">
+                  <button onClick={handleSaveCode} className="w-full py-3 bg-blue-500 text-white border-4 border-slate-800 rounded-xl font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all mb-3 text-base md:text-lg">產生進度代碼 (自動複製)</button>
+                  <div className="relative">
+                    <textarea id="saveCodeTextarea" value={saveCode} onChange={(e) => setSaveCode(e.target.value)} placeholder="點擊上方按鈕生成，或是手動貼上舊代碼至此處" rows="4" className="w-full border-4 border-slate-800 rounded-xl p-3 pb-12 font-mono text-sm shadow-inner outline-none focus:bg-blue-50 break-all bg-white" />
+                    <button onClick={handleQuickPaste} className="absolute bottom-3 right-3 bg-[#ffcc00] text-slate-900 px-3 py-1.5 rounded-lg text-sm font-black border-2 border-slate-800 hover:bg-[#e6b800] shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all active:translate-y-1 active:shadow-none">📋 快速貼上</button>
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <button onClick={() => setShowSaveModal(false)} className="flex-1 py-3 bg-white border-4 border-slate-800 rounded-xl font-black text-slate-800 shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all">關閉</button>
+                  <button onClick={handleLoadCode} className="flex-1 py-3 bg-emerald-400 text-slate-900 border-4 border-slate-800 rounded-xl font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all">載入代碼</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {toastMsg && <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-full font-bold shadow-[0_4px_10px_rgba(0,0,0,0.3)] z-[100] border-[3px] border-white animate-slideUpFade">{toastMsg}</div>}
+        </div>
+      );
+    }
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<SudokuGame />);
+  </script>
+</body>
+</html>

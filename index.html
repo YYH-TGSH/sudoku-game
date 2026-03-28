@@ -1083,7 +1083,15 @@
         });
 
         syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null });
-        setIsWon(false); setHistory([]); setZoomLevel(1); setZoomModeIdx(0); setEndTime(null); setHideVictoryModal(false);
+        setIsWon(false); setHistory([]); 
+        
+        // 只有在切換不同宮格尺寸時，才重置畫面縮放比例
+        if (sId !== sizeId) {
+            setZoomLevel(1); 
+            setZoomModeIdx(0);
+        }
+        
+        setEndTime(null); setHideVictoryModal(false);
         setSelectedChar(null); 
         setIsGenerating(false);
         setGenProgress("");
@@ -1123,15 +1131,21 @@
 
         setIsGenerating(true);
         setGenProgress("初始化連線盤面...");
-        syncState({ isGenerating: true });
+        // 建立房間前，以不廣播 (false) 的方式寫入狀態
+        syncState({ isGenerating: true }, false);
         await new Promise(r => setTimeout(r, 50));
         const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
-        stateRef.current.levelData = initialLevelData;
-        stateRef.current.cells = initialLevelData.cells;
-        stateRef.current.strokes = [];
-        stateRef.current.startTime = Date.now();
-        setCells(initialLevelData.cells);
-        setLevelData(initialLevelData);
+        
+        // 確保將生成完畢的狀態 (isGenerating: false) 寫入 stateRef，這樣存入雲端時才會是正確的初始狀態
+        syncState({ 
+            levelData: initialLevelData, 
+            cells: initialLevelData.cells, 
+            strokes: [], 
+            startTime: Date.now(),
+            isGenerating: false,
+            selectedChar: null
+        }, false);
+        
         setIsGenerating(false);
         setGenProgress("");
 
@@ -1366,7 +1380,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v1.2.1)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v1.2.2)</div>
           </div>
         );
       }

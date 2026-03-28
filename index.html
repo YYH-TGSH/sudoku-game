@@ -138,7 +138,7 @@
 
     function transpose(matrix) { return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex])); }
 
-    // === 回溯法求解器 (MRV 啟發式搜尋，大幅提升 16x16 驗證速度) ===
+    // === 回溯法求解器 ===
     function countSolutions(grid, size, boxW, boxH, limit = 2) {
         let count = 0;
         
@@ -206,13 +206,12 @@
         return count;
     }
 
-    // === 非同步出題引擎 (反覆嘗試 + 20秒強制停損倒數) ===
+    // === 非同步出題引擎 ===
     async function generateSudokuAsync(sizeId, diffId, onProgress) {
         const sizeDef = SIZES.find(s => s.id === sizeId);
         const diffDef = DIFFICULTIES.find(d => d.id === diffId);
         const targetRange = diffDef.targets[sizeId];
         
-        // 隨機決定這局要達到的具體目標格數
         const targetClues = Math.floor(Math.random() * (targetRange[1] - targetRange[0] + 1)) + targetRange[0];
         const targetMax = targetRange[1];
         
@@ -256,7 +255,6 @@
                 const now = Date.now();
                 const elapsedSecs = Math.floor((now - generationStartTime) / 1000);
 
-                // 20秒後啟動強制 10 秒倒數停損機制
                 if (elapsedSecs >= 20) {
                     const remainingSecs = 30 - elapsedSecs;
                     if (remainingSecs <= 0) {
@@ -266,7 +264,7 @@
                     if (now - lastTick >= 1000) {
                         lastTick = now;
                         if (onProgress) onProgress(`題目生成不超過 ${remainingSecs} 秒...`);
-                        await new Promise(r => setTimeout(r, 10)); // 強制讓出線程以更新 UI
+                        await new Promise(r => setTimeout(r, 15)); 
                     }
                 }
 
@@ -311,7 +309,6 @@
                         break;
                     }
                 }
-                // 增加出讓線程的頻率，確保大盤面不卡死
                 if (size === 16 || i % 15 === 0) await new Promise(r => setTimeout(r, 0));
             }
 
@@ -428,7 +425,7 @@
       const unsubRef = useRef(null);
       const zoomContainerRef = useRef(null);
       const lastPinchDist = useRef(null);
-      const stateRef = useRef({ cells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [] });
+      const stateRef = useRef({ cells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isAutoFilling: false });
       
       const playersListRef = useRef([]);
       useEffect(() => { playersListRef.current = playersList; }, [playersList]);
@@ -458,9 +455,11 @@
               }
           });
           const completed = new Set();
-          for (const char of cSizeDef.chars) {
-              if (counts[char] >= cSizeDef.size) {
-                  completed.add(char);
+          if (cSizeDef && cSizeDef.chars) {
+              for (const char of cSizeDef.chars) {
+                  if (counts[char] >= cSizeDef.size) {
+                      completed.add(char);
+                  }
               }
           }
           return completed;
@@ -517,7 +516,7 @@
         initAuth(); onAuthStateChanged(auth, function(u) { if(u) setUser(u); });
       }, []);
 
-      useEffect(function() { stateRef.current = { cells, levelData, startTime, sizeId, diffId, strokes }; }, [cells, levelData, startTime, sizeId, diffId, strokes]);
+      useEffect(function() { stateRef.current = { ...stateRef.current, cells, levelData, startTime, sizeId, diffId, strokes }; }, [cells, levelData, startTime, sizeId, diffId, strokes]);
 
       useEffect(function() {
         if (screen !== 'game') return;
@@ -659,6 +658,9 @@
         if (partial.sizeId !== undefined) setSizeId(partial.sizeId);
         if (partial.diffId !== undefined) setDiffId(partial.diffId);
         if (partial.strokes !== undefined) setStrokes(partial.strokes);
+        if (partial.isGenerating !== undefined) setIsGenerating(partial.isGenerating);
+        if (partial.selectedChar !== undefined) setSelectedChar(partial.selectedChar);
+        if (partial.isAutoFilling !== undefined) isAutoFillingRef.current = partial.isAutoFilling;
         
         const updatedState = { ...stateRef.current, ...partial };
         stateRef.current = updatedState;
@@ -673,6 +675,7 @@
       const autoFillHiddenSingles = async (char) => {
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
+          syncState({ isAutoFilling: true, selectedChar: char });
           
           let changed = false;
           let stateChanged = false;
@@ -693,13 +696,12 @@
           const fill = async (cellId) => {
               const idx = currentCells.findIndex(c => c.id === cellId);
               if (idx !== -1) {
-                  currentCells = [...currentCells]; // 強制更新陣列參照，讓 React 即時重新渲染，觸發反灰
+                  currentCells = [...currentCells]; 
                   const targetCell = currentCells[idx];
                   currentCells[idx] = { ...targetCell, value: char, drafts: [], owner: myId };
                   changed = true;
                   stateChanged = true;
                   
-                  // 自動清除同行、同列、同宮格的草稿
                   for (let i = 0; i < currentCells.length; i++) {
                       if (i !== idx) {
                           const c = currentCells[i];
@@ -745,19 +747,20 @@
               if (engineRef.current === 'none') {
                   setHistory(past => { const newPast = [...past, currentCells]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
               }
-              // 如果填滿就提早重置選擇，觸發勝利動畫
-              if (currentCells.every(c => c.value !== null)) setSelectedChar(null);
+              if (currentCells.every(c => c.value !== null)) syncState({ selectedChar: null });
               else showToast(`✅ 自動填入 ${char} 成功！`);
           } else {
               showToast(`💡 目前找不到必定為 ${char} 的空格了`);
           }
           isAutoFillingRef.current = false;
+          syncState({ isAutoFilling: false, selectedChar: null });
       };
 
       // === 雙擊自動填草稿 (整列掃描動畫) ===
       const autoFillDrafts = async (char) => {
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
+          syncState({ isAutoFilling: true, selectedChar: char });
 
           let stateChanged = false;
           let currentCells = [...stateRef.current.cells];
@@ -776,7 +779,7 @@
 
           for (let y = 0; y < cSizeDef.size; y++) {
               let rowChanged = false;
-              let newRowCells = [...currentCells]; // 強制更新陣列參照
+              let newRowCells = [...currentCells]; 
               for (let x = 0; x < cSizeDef.size; x++) {
                   const cellIdx = newRowCells.findIndex(c => c.x === x && c.y === y);
                   const cell = newRowCells[cellIdx];
@@ -804,12 +807,14 @@
               showToast(`💡 沒有更多安全的空格可以標記 ${char} 了`);
           }
           isAutoFillingRef.current = false;
+          syncState({ isAutoFilling: false, selectedChar: null });
       };
 
       // === 五連擊全自動循環填答 (非同步視覺化) ===
       const runAutoFillCycle = async (startChar) => {
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
+          syncState({ isAutoFilling: true });
 
           let changed = false;
           let stateChanged = false;
@@ -838,7 +843,7 @@
           const fill = async (cellId, fillChar) => {
               const idx = currentCells.findIndex(c => c.id === cellId);
               if (idx !== -1) {
-                  currentCells = [...currentCells]; // 強制更新陣列參照
+                  currentCells = [...currentCells]; 
                   const targetCell = currentCells[idx];
                   currentCells[idx] = { ...targetCell, value: fillChar, drafts: [], owner: myId };
                   changed = true;
@@ -855,7 +860,7 @@
                           }
                       }
                   }
-                  syncState({ cells: currentCells });
+                  syncState({ cells: currentCells, selectedChar: fillChar });
                   await new Promise(r => setTimeout(r, 100));
               }
           };
@@ -870,7 +875,7 @@
                   if (currentCells.every(c => c.value !== null)) break;
                   if (isCharCompleted(char, currentCells)) continue;
 
-                  setSelectedChar(char);
+                  syncState({ selectedChar: char });
                   await new Promise(r => setTimeout(r, 50)); 
 
                   do {
@@ -907,13 +912,16 @@
               if (engineRef.current === 'none') {
                   setHistory(past => { const newPast = [...past, currentCells]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
               }
-              if (currentCells.every(c => c.value !== null)) setSelectedChar(null);
-              else showToast(`🚀 全自動循環填寫完畢！\n共幫您填入了 ${totalFilled} 格。`);
+              if (currentCells.every(c => c.value !== null)) {
+                  // 到這裡盤面已全滿，不需要額外 toast，Victory 會自動接手
+              } else {
+                  showToast(`🚀 全自動循環填寫完畢！\n共幫您填入了 ${totalFilled} 格。`);
+              }
           } else {
               showToast(`💡 目前已經找不到必定能填寫的空格了`);
-              setSelectedChar(null);
           }
           isAutoFillingRef.current = false;
+          syncState({ isAutoFilling: false, selectedChar: null });
       };
 
       // === 處理多擊與單擊數字鍵盤 ===
@@ -932,15 +940,17 @@
               tracker.count = 1;
           }
           tracker.time = now;
+          
+          const isCompleted = completedChars.has(c);
 
           if (tracker.count === 1) {
-              setSelectedChar(prev => prev === c ? null : c);
+              if (!isCompleted) setSelectedChar(prev => prev === c ? null : c);
           } else if (tracker.count === 2) {
-              setSelectedChar(c);
-              if (interactionMode === 0) autoFillHiddenSingles(c);
-              else if (interactionMode === 1) autoFillDrafts(c);
+              if (!isCompleted) {
+                  if (interactionMode === 0) autoFillHiddenSingles(c);
+                  else if (interactionMode === 1) autoFillDrafts(c);
+              }
           } else if (tracker.count === 5) {
-              setSelectedChar(c);
               if (interactionMode === 0) runAutoFillCycle(c);
               else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用");
               tracker.count = 0; 
@@ -1057,8 +1067,13 @@
 
       // ==== 核心的非同步觸發與狀態綁定 ====
       const generateAndSync = async (sId, dId) => {
+        if (isAutoFillingRef.current) return;
+        setIsWon(false); 
+        setEndTime(null);
+        setHideVictoryModal(true);
         setIsGenerating(true);
         setGenProgress("初始化盤面...");
+        syncState({ isGenerating: true }); 
         purgeGhostPlayers();
         
         await new Promise(r => setTimeout(r, 50));
@@ -1067,7 +1082,7 @@
             setGenProgress(msg);
         });
 
-        syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now() });
+        syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null });
         setIsWon(false); setHistory([]); setZoomLevel(1); setZoomModeIdx(0); setEndTime(null); setHideVictoryModal(false);
         setSelectedChar(null); 
         setIsGenerating(false);
@@ -1079,7 +1094,14 @@
       const handleRegenerateRandom = () => { generateAndSync(sizeId, diffId); };
 
       const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
-      const triggerRegenerate = () => { setIsClosingModal(true); setTimeout(() => { setIsClosingModal(false); handleRegenerateRandom(); }, 300); };
+      const triggerRegenerate = () => { 
+          setIsWon(false); 
+          setIsClosingModal(true); 
+          setTimeout(() => { 
+              setIsClosingModal(false); 
+              handleRegenerateRandom(); 
+          }, 300); 
+      };
 
       const switchToOffline = () => {
         if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
@@ -1101,6 +1123,7 @@
 
         setIsGenerating(true);
         setGenProgress("初始化連線盤面...");
+        syncState({ isGenerating: true });
         await new Promise(r => setTimeout(r, 50));
         const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
         stateRef.current.levelData = initialLevelData;
@@ -1151,6 +1174,9 @@
               if (gs.levelData) setLevelData(gs.levelData);
               if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
               if (gs.startTime) setStartTime(gs.startTime); if (gs.strokes !== undefined) setStrokes(gs.strokes);
+              if (gs.isGenerating !== undefined) setIsGenerating(gs.isGenerating);
+              if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar);
+              if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               stateRef.current = gs;
             }
           }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
@@ -1281,11 +1307,11 @@
       }, [cells, selectedChar, cSizeDef, interactionMode]);
 
       useEffect(function() {
-        if (!cells || cells.length === 0) return;
+        if (!cells || cells.length === 0 || isGenerating) return; 
         if (cells.every(c => c.value !== null) && conflictCellIds.size === 0) {
             if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); }
         } else if (isWon) { setIsWon(false); setEndTime(null); }
-      }, [cells, conflictCellIds, isWon]);
+      }, [cells, conflictCellIds, isWon, isGenerating]);
 
       const handleSaveCode = () => {
         const saveData = { sId: sizeId, dId: diffId, l: levelData, c: cells.map(c => ({ i: c.id, v: c.value, d: c.drafts, o: c.owner })), s: strokes };
@@ -1340,7 +1366,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v1.2)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v1.2.1)</div>
           </div>
         );
       }
@@ -1372,11 +1398,7 @@
               </div>
               <button onClick={() => setScreen('home')} disabled={isConnecting} className="mt-8 w-full text-slate-400 font-bold hover:text-slate-800 hover:underline text-center transition-colors disabled:opacity-50">取消返回主選單</button>
             </div>
-            {toastMsg && (
-                <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-xl border-[3px] border-[#2d2a26] font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] z-[100] animate-slideUpFade flex items-center justify-center gap-2 whitespace-pre-line text-center">
-                    {toastMsg}
-                </div>
-            )}
+            {toastMsg && <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-white text-slate-800 px-6 py-3 rounded-xl border-[3px] border-slate-800 font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] z-[100] animate-slideUpFade flex items-center justify-center gap-2 whitespace-pre-line text-center">{toastMsg}</div>}
           </div>
         );
       }
@@ -1406,6 +1428,7 @@
                            <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
                            <li>草稿模式：在方格內標記多個小數字。<strong>有數字的格子不會被覆蓋。</strong></li>
                            <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
+                           <li><strong>長按模式按鈕：</strong>草稿模式下長按 ✏️ 按鈕 0.6 秒可一鍵刪除所有草稿。</li>
                         </ol>
                      </div>
                   </div>
@@ -1481,7 +1504,8 @@
                   <div className="text-slate-800 font-black text-2xl md:text-4xl tracking-widest flex items-center select-none animate-pulse mb-4">
                     題目生成中<span className="animate-loading-dots inline-block w-[1.5em] text-left"></span>
                   </div>
-                  {genProgress && (
+                  {/* 若是自己(主機)正在算題，才顯示進度；其他玩家只看見生成中 */}
+                  {(isHostRef.current || engineRef.current === 'none') && genProgress && (
                     <div className="text-slate-600 font-bold text-sm md:text-base animate-fadeIn whitespace-pre-line text-center">
                        {genProgress}
                     </div>
@@ -1499,11 +1523,10 @@
                     return (
                         <button
                            key={c}
-                           disabled={isCompleted}
-                           onClick={(e) => { if (!isCompleted) onNumClick(e, c); }}
+                           onClick={(e) => { onNumClick(e, c); }}
                            title={isCompleted ? `已經填滿 ${c}` : `點擊選取 ${c}`}
                            className={`select-none w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 flex items-center justify-center shrink-0 transition-transform
-                           ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-not-allowed shadow-none' : 
+                           ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none active:translate-y-1' : 
                              selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[2px_2px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none'}`}
                         >
                            {c}
@@ -1722,7 +1745,7 @@
             </div>
           )}
           {toastMsg && (
-              <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white px-6 py-3 rounded-xl border-[3px] border-[#2d2a26] font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] z-[100] animate-slideUpFade flex items-center justify-center gap-2 whitespace-pre-line text-center">
+              <div className="fixed top-10 left-1/2 transform -translate-x-1/2 bg-white text-slate-800 px-6 py-3 rounded-xl border-[3px] border-slate-800 font-black shadow-[4px_4px_0px_rgba(30,41,59,1)] z-[100] animate-slideUpFade flex items-center justify-center gap-2 whitespace-pre-line text-center">
                   {toastMsg}
               </div>
           )}

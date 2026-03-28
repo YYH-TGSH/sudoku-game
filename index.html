@@ -132,47 +132,82 @@
 
     function transpose(matrix) { return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex])); }
 
-    // === 回溯法求解器 (唯一解驗證) ===
+    // === 回溯法求解器 (MRV 啟發式搜尋，大幅提升 16x16 驗證速度) ===
     function countSolutions(grid, size, boxW, boxH, limit = 2) {
         let count = 0;
-        const solve = (index) => {
-            if (index === size * size) { count++; return count >= limit; }
-            const y = Math.floor(index / size);
-            const x = index % size;
-            if (grid[y][x] !== null) return solve(index + 1);
-
-            const used = new Set();
+        
+        const getCandidates = (y, x) => {
+            let used = new Array(size).fill(false);
             for (let i = 0; i < size; i++) {
-                if (grid[y][i] !== null) used.add(grid[y][i]);
-                if (grid[i][x] !== null) used.add(grid[i][x]);
+                if (grid[y][i] !== null) used[grid[y][i]] = true;
+                if (grid[i][x] !== null) used[grid[i][x]] = true;
             }
             const by = Math.floor(y / boxH) * boxH;
             const bx = Math.floor(x / boxW) * boxW;
             for (let dy = 0; dy < boxH; dy++) {
                 for (let dx = 0; dx < boxW; dx++) {
-                    if (grid[by + dy][bx + dx] !== null) used.add(grid[by + dy][bx + dx]);
+                    let val = grid[by + dy][bx + dx];
+                    if (val !== null) used[val] = true;
                 }
             }
-
+            let candidates = [];
             for (let v = 0; v < size; v++) {
-                if (!used.has(v)) {
-                    grid[y][x] = v;
-                    if (solve(index + 1)) { grid[y][x] = null; return true; }
-                    grid[y][x] = null;
+                if (!used[v]) candidates.push(v);
+            }
+            return candidates;
+        };
+
+        const solve = () => {
+            let minCandidates = size + 1;
+            let bestY = -1;
+            let bestX = -1;
+            let bestCand = null;
+
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    if (grid[y][x] === null) {
+                        const cands = getCandidates(y, x);
+                        if (cands.length === 0) return false; 
+                        if (cands.length < minCandidates) {
+                            minCandidates = cands.length;
+                            bestY = y;
+                            bestX = x;
+                            bestCand = cands;
+                            if (minCandidates === 1) break; 
+                        }
+                    }
                 }
+                if (minCandidates === 1) break;
+            }
+
+            if (bestY === -1) {
+                count++;
+                return count >= limit;
+            }
+
+            for (let i = 0; i < bestCand.length; i++) {
+                grid[bestY][bestX] = bestCand[i];
+                if (solve()) {
+                    grid[bestY][bestX] = null;
+                    return true; 
+                }
+                grid[bestY][bestX] = null;
             }
             return false;
         };
-        solve(0);
+
+        solve();
         return count;
     }
 
-    // === 非同步出題引擎 (反覆嘗試，確保唯一解與目標數量) ===
+    // === 非同步出題引擎 (反覆嘗試 + 連續失敗停損機制) ===
     async function generateSudokuAsync(sizeId, diffId, onProgress) {
         const sizeDef = SIZES.find(s => s.id === sizeId);
         const diffDef = DIFFICULTIES.find(d => d.id === diffId);
         const targetRange = diffDef.targets[sizeId];
-        const targetMin = targetRange[0];
+        
+        // 隨機決定這局要達到的具體目標格數 (例如: 112格)
+        const targetClues = Math.floor(Math.random() * (targetRange[1] - targetRange[0] + 1)) + targetRange[0];
         const targetMax = targetRange[1];
         
         const { size, boxW, boxH, chars } = sizeDef;
@@ -180,12 +215,9 @@
         let bestResult = null;
         let minCluesAchieved = Infinity;
         
-        // 設定最高嘗試次數 (保護機制，若真的一直達不到，就給出最佳的)
-        // 9x9 嘗試多一點以達到 20 的極限，16x16 因為太耗時稍微限制
-        const maxAttempts = size === 16 ? 10 : 40;
+        const maxAttempts = size === 16 ? 8 : 40;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-            // 1. 生成打亂滿盤
             let grid = (size === 4 ? BASE_4 : size === 9 ? BASE_9 : BASE_16).map(row => [...row]);
             const charPool = [...chars]; charPool.sort(() => Math.random() - 0.5);
             grid = grid.map(row => row.map(val => charPool[val]));
@@ -204,10 +236,13 @@
             positions.sort(() => Math.random() - 0.5);
 
             let currentClues = size * size;
+            let failCount = 0; // 連續失敗停損計數器
+            const maxCheckHoles = positions.length; 
+            
             const testGrid = puzzle.map(r => [...r]);
 
-            for (let i = 0; i < positions.length; i++) {
-                if (currentClues <= targetMin) break; // 已經達到最小目標，停止挖洞
+            for (let i = 0; i < maxCheckHoles; i++) {
+                if (currentClues <= targetClues) break; // 達到完美的隨機目標，直接結束！
 
                 const p1 = positions[i];
                 const p2 = { x: size - 1 - p1.x, y: size - 1 - p1.y };
@@ -227,28 +262,36 @@
                     }
 
                     const testNumGrid = testGrid.map(row => row.map(v => v === null ? null : chars.indexOf(v)));
-                    // 唯一解驗證！
+                    
+                    // 唯一解驗證
                     if (countSolutions(testNumGrid, size, boxW, boxH, 2) !== 1) {
+                        // 失敗：這格不能挖，會造成多重解
                         puzzle[p1.y][p1.x] = backup1; testGrid[p1.y][p1.x] = backup1;
                         if (removed === 2) { puzzle[p2.y][p2.x] = backup2; testGrid[p2.y][p2.x] = backup2; }
+                        failCount++;
                     } else {
+                        // 成功：這格可以挖
                         currentClues -= removed;
+                        failCount = 0; // 成功挖洞，歸零重新計算停損
                         if (currentClues < minCluesAchieved) {
                             minCluesAchieved = currentClues;
                             bestResult = puzzle.map(r => [...r]);
-                            if (onProgress) onProgress(`尋找極限難度... (目標區間: ${targetMax}格以下, 目前最佳: ${minCluesAchieved}格)`);
+                            if (onProgress) onProgress(`挑戰極限難度... (目標: ${targetClues}格, 目前最佳: ${minCluesAchieved}格)`);
                         }
+                    }
+
+                    // 【智慧停損機制】如果已經進入合格區間 (<= targetMax)，而且連續 25 次都挖不出新洞，代表已經到了盤面極限，提早收工！
+                    if (currentClues <= targetMax && failCount > 25) {
+                        break;
                     }
                 }
                 
-                // 【核心】讓出執行緒給瀏覽器，防止當機且讓畫面進度能夠更新
                 if (i % 15 === 0) await new Promise(r => setTimeout(r, 0));
             }
 
-            if (currentClues <= targetMax) break; // 成功達到目標區間，跳出重試迴圈
+            if (currentClues <= targetMax) break; 
         }
 
-        // 如果真的達不到目標（例如要 20，但算完最好只有 23），就回傳最佳的 23 確保唯一解
         if (!bestResult) bestResult = grid;
 
         const cells = [];
@@ -581,11 +624,13 @@
         const cur = cells || []; const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
         
+        // 點擊已有數字的格子，若未選取數字，則自動切換為該數字
         if (selectedChar === null) {
             if (target.value !== null) setSelectedChar(target.value);
             return;
         }
 
+        // 若格子為題目給定，點擊時直接切換欲填寫的數字（或取消選取）
         if (target.isGiven) {
             setSelectedChar(prev => prev === target.value ? null : target.value);
             return; 

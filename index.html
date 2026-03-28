@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="連線數獨">
-  <title>連線數獨 - Multiplayer Sudoku</title>
+  <meta name="apple-mobile-web-app-title" content="數獨">
+  <title>數獨 - Multiplayer Sudoku</title>
   
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23ffcc00%22 rx=%2220%22/><text y=%2272%22 x=%2216%22 font-size=%2265%22>🔢</text></svg>">
   
@@ -249,6 +249,12 @@
         return { sizeDef, diffDef, cells };
     }
 
+    const getAvailableColor = (currentPlayers) => {
+      const usedColors = currentPlayers.map(p => p.color);
+      const available = COLORS.filter(c => !usedColors.includes(c));
+      return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : COLORS[Math.floor(Math.random() * COLORS.length)];
+    };
+
     function formatTime(secs) { return String(Math.floor(secs / 60)).padStart(2, '0') + ":" + String(secs % 60).padStart(2, '0'); }
 
     function GameTimer({ startTime, endTime, isRunning }) {
@@ -301,7 +307,7 @@
 
       const [interactionMode, setInteractionMode] = useState(0);
       const [drawSubMode, setDrawSubMode] = useState('pen');
-      const [selectedChar, setSelectedChar] = useState(null); // 初始為 null
+      const [selectedChar, setSelectedChar] = useState('1');
       
       const modeIcons = ['🖋️', '✏️', '🖌️'];
       const modeTitles = ['填答模式', '草稿模式', '畫筆作記號'];
@@ -361,14 +367,14 @@
       const svgW = cSizeDef.size * CELL_SIZE + PADDING * 2;
       const svgH = cSizeDef.size * CELL_SIZE + PADDING * 2;
 
-      // 鍵盤支援：點擊相同數字會取消選取
+      // 鍵盤支援
       useEffect(() => {
           if (screen !== 'game') return;
           const handleKeyDown = (e) => {
               if (interactionMode >= 2) return;
               const key = e.key.toUpperCase();
               if (cSizeDef.chars.includes(key)) {
-                  setSelectedChar(prev => prev === key ? null : key);
+                  setSelectedChar(key);
               } else if (e.key === 'q' || e.key === 'Q') {
                   toggleInteractionMode();
               }
@@ -377,11 +383,8 @@
           return () => window.removeEventListener('keydown', handleKeyDown);
       }, [screen, cSizeDef.chars, interactionMode]);
 
-      // 若關卡切換導致當前選擇的數字不在新關卡中，則清空選取
       useEffect(() => {
-          if (selectedChar !== null && cSizeDef && cSizeDef.chars && !cSizeDef.chars.includes(selectedChar)) {
-              setSelectedChar(null);
-          }
+          if (cSizeDef && cSizeDef.chars && !cSizeDef.chars.includes(selectedChar)) setSelectedChar(cSizeDef.chars[0]);
       }, [cSizeDef, selectedChar]);
 
       const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[0]; };
@@ -561,18 +564,7 @@
         if (isWon || interactionMode >= 2) return;
         const cur = cells || []; const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
-        
-        // 點擊已有數字的格子，若未選取數字，則自動切換為該數字
-        if (selectedChar === null) {
-            if (target.value !== null) setSelectedChar(target.value);
-            return;
-        }
-
-        // 若格子為題目給定，點擊時直接切換欲填寫的數字（或取消選取）
-        if (target.isGiven) {
-            setSelectedChar(prev => prev === target.value ? null : target.value);
-            return; 
-        }
+        if (target.isGiven) return; 
 
         if (engineRef.current === 'none') {
             setHistory(past => { const newPast = [...past, cur]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
@@ -607,7 +599,6 @@
         syncState({ cells: cells.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null })), strokes: [], startTime: Date.now() });
         if (engineRef.current === 'none') setHistory([]);
         setIsWon(false); setEndTime(null);
-        setSelectedChar(null);
       };
 
       const generateAndSync = (sId, dId) => {
@@ -617,7 +608,7 @@
             const newData = generateSudoku(sId, dId);
             syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: newData.cells, strokes: [], startTime: Date.now() });
             setIsWon(false); setHistory([]); setZoomLevel(1); setZoomModeIdx(0); setEndTime(null); setHideVictoryModal(false);
-            setSelectedChar(null); // 產生新局時淨空選擇
+            if (!newData.sizeDef.chars.includes(selectedChar)) setSelectedChar(newData.sizeDef.chars[0]);
             setIsGenerating(false);
         }, 100);
       };
@@ -786,7 +777,7 @@
       // 選項 Y: 輔助高亮系統 (十字與宮格)
       const highlightZones = useMemo(() => {
           const zones = new Set();
-          if (selectedChar !== null && interactionMode < 2) {
+          if (selectedChar && interactionMode < 2) {
               cells.forEach(c => {
                   if (c.value === selectedChar) {
                       for (let i = 0; i < cSizeDef.size; i++) {
@@ -832,7 +823,6 @@
           const restoredCells = data.l.cells.map(c => { const saved = data.c.find(sc => sc.i === c.id); return saved ? { ...c, value: saved.v, drafts: saved.d || [], owner: saved.o } : c; });
           syncState({ sizeId: data.sId, diffId: data.dId, levelData: data.l, cells: restoredCells, strokes: data.s || [] });
           setIsWon(false); setShowSaveModal(false); showToast("✅ 讀取成功！");
-          setSelectedChar(null); // 讀檔後淨空選擇
         } catch(e) { showToast("⚠️ 讀檔失敗！"); }
       };
 
@@ -866,7 +856,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 數獨連線. (v2.1 智慧選取版)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 數獨連線. (v2.0 唯一解高亮版)</div>
           </div>
         );
       }
@@ -924,7 +914,7 @@
                      <div className="flex-1">
                         <h3 className="text-sm md:text-base font-black mb-1 border-b-[3px] border-[#ffcc00] inline-block pb-0.5">📜 遊戲規則</h3>
                         <ol className="list-decimal list-outside ml-4 space-y-1 text-xs md:text-sm leading-relaxed font-bold">
-                           <li>選擇下方數字點擊方格。若不選下方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
+                           <li>選擇下方數字點擊方格。同一個數字的同行、同列、同宮格會亮起黃色輔助線。</li>
                            <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
                            <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
                            <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
@@ -1006,6 +996,20 @@
                 </div>
               )}
 
+              {/* 頂部數字鍵盤 */}
+              <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto">
+                 {cSizeDef.chars.map(c => (
+                    <button
+                       key={c}
+                       onClick={() => setSelectedChar(prev => prev === c ? null : c)}
+                       className={`w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-transform active:translate-y-1 active:shadow-none flex items-center justify-center shrink-0
+                       ${selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
+                    >
+                       {c}
+                    </button>
+                 ))}
+              </div>
+
               <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 flex flex-col gap-2 md:gap-3 z-[5] pointer-events-auto items-end">
                 <div className="flex items-center">
                    {interactionMode === 2 && (
@@ -1055,13 +1059,13 @@
                         {/* 背景與高亮 */}
                         {cells.map(cell => {
                             const hasConflict = conflictCellIds.has(cell.id);
-                            const isExactMatch = selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
+                            const isExactMatch = selectedChar && cell.value === selectedChar && interactionMode < 2;
                             const isHighlightZone = highlightZones.has(cell.id);
                             
                             let fillColor = '#ffffff';
-                            if (hasConflict) fillColor = '#fee2e2'; 
-                            else if (isExactMatch) fillColor = '#fde047'; 
-                            else if (isHighlightZone) fillColor = '#fef08a'; 
+                            if (hasConflict) fillColor = '#fee2e2'; // 淺紅 (最優先)
+                            else if (isExactMatch) fillColor = '#fde047'; // 明黃
+                            else if (isHighlightZone) fillColor = '#fef08a'; // 淺黃
                             
                             return (
                                 <rect key={`bg-${cell.id}`} x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={fillColor} className="transition-colors duration-300 pointer-events-none" />
@@ -1088,7 +1092,7 @@
                             }
 
                             return (
-                                <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
+                                <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 || cell.isGiven ? 'pointer-events-none' : 'cursor-pointer group'}>
                                     <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
                                     {cell.value ? (
                                         <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
@@ -1136,20 +1140,6 @@
                     })}
                   </svg>
                 </div>
-              </div>
-              
-              {/* 底部數字鍵盤 */}
-              <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-3 bg-[#f8fafc] border-t-[3px] border-slate-800 shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto">
-                 {cSizeDef.chars.map(c => (
-                    <button
-                       key={c}
-                       onClick={() => setSelectedChar(prev => prev === c ? null : c)}
-                       className={`w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-transform active:translate-y-1 active:shadow-none flex items-center justify-center
-                       ${selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
-                    >
-                       {c}
-                    </button>
-                 ))}
               </div>
 
               {isWon && !hideVictoryModal && (

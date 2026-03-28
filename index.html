@@ -272,7 +272,7 @@
                     } else {
                         // 成功：這格可以挖
                         currentClues -= removed;
-                        failCount = 0; // 成功挖洞，歸零重新計算停損
+                        failCount = 0; 
                         if (currentClues < minCluesAchieved) {
                             minCluesAchieved = currentClues;
                             bestResult = puzzle.map(r => [...r]);
@@ -280,15 +280,12 @@
                         }
                     }
 
-                    // 【智慧停損機制】如果已經進入合格區間 (<= targetMax)，而且連續 25 次都挖不出新洞，代表已經到了盤面極限，提早收工！
                     if (currentClues <= targetMax && failCount > 25) {
                         break;
                     }
                 }
-                
                 if (i % 15 === 0) await new Promise(r => setTimeout(r, 0));
             }
-
             if (currentClues <= targetMax) break; 
         }
 
@@ -369,7 +366,6 @@
       const [zoomModeIdx, setZoomModeIdx] = useState(0); 
       const [isClosingModal, setIsClosingModal] = useState(false);
       
-      // 生成進度狀態
       const [isGenerating, setIsGenerating] = useState(false);
       const [genProgress, setGenProgress] = useState("");
 
@@ -424,7 +420,7 @@
       const svgW = cSizeDef.size * CELL_SIZE + PADDING * 2;
       const svgH = cSizeDef.size * CELL_SIZE + PADDING * 2;
 
-      // 鍵盤支援
+      // === 鍵盤支援 ===
       useEffect(() => {
           if (screen !== 'game') return;
           const handleKeyDown = (e) => {
@@ -446,7 +442,7 @@
           }
       }, [cSizeDef, selectedChar]);
 
-      const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[11]; }; // 天空藍預設
+      const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[11]; };
       
       const myCurrentColor = getPlayerColor(myId);
       const _mePlayer = playersList.find(p => p.id === myId);
@@ -619,18 +615,180 @@
         }
       };
 
+      // === 全新功能：雙擊自動填答 (隱藏唯一解連鎖) ===
+      const autoFillHiddenSingles = (char) => {
+          let changed = false;
+          let stateChanged = false;
+          let currentCells = [...cells];
+
+          // 判斷某格填入 char 是否合法 (不與其他格子衝突)
+          const isValid = (cell, gridCells) => {
+              if (cell.value !== null) return false;
+              for (let other of gridCells) {
+                  if (other.value === char) {
+                      if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) {
+                          return false;
+                      }
+                  }
+              }
+              return true;
+          };
+
+          const fill = (cellId) => {
+              const idx = currentCells.findIndex(c => c.id === cellId);
+              if (idx !== -1) {
+                  currentCells[idx] = { ...currentCells[idx], value: char, drafts: [], owner: myId };
+                  changed = true;
+                  stateChanged = true;
+              }
+          };
+
+          // 連鎖填寫，直到找不到任何必定存在的格子
+          do {
+              changed = false;
+              
+              // 1. 檢查每一行是否只有唯一的格子能填 char
+              for (let y = 0; y < cSizeDef.size; y++) {
+                  const rowCells = currentCells.filter(c => c.y === y);
+                  if (rowCells.some(c => c.value === char)) continue;
+                  const validEmpties = rowCells.filter(c => isValid(c, currentCells));
+                  if (validEmpties.length === 1) fill(validEmpties[0].id);
+              }
+              if (changed) continue;
+
+              // 2. 檢查每一列
+              for (let x = 0; x < cSizeDef.size; x++) {
+                  const colCells = currentCells.filter(c => c.x === x);
+                  if (colCells.some(c => c.value === char)) continue;
+                  const validEmpties = colCells.filter(c => isValid(c, currentCells));
+                  if (validEmpties.length === 1) fill(validEmpties[0].id);
+              }
+              if (changed) continue;
+
+              // 3. 檢查每一個宮格
+              for (let b = 0; b < cSizeDef.size; b++) {
+                  const boxCells = currentCells.filter(c => c.boxId === b);
+                  if (boxCells.some(c => c.value === char)) continue;
+                  const validEmpties = boxCells.filter(c => isValid(c, currentCells));
+                  if (validEmpties.length === 1) fill(validEmpties[0].id);
+              }
+
+          } while (changed);
+
+          if (stateChanged) {
+              if (engineRef.current === 'none') {
+                  setHistory(past => { const newPast = [...past, cells]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
+              }
+              syncState({ cells: currentCells });
+              showToast(`✅ 自動填入 ${char} 成功！`);
+          } else {
+              showToast(`💡 目前找不到必定為 ${char} 的空格了`);
+          }
+      };
+
+      // === 全新功能：雙擊自動填草稿 ===
+      const autoFillDrafts = (char) => {
+          let stateChanged = false;
+          
+          const isValid = (cell) => {
+              if (cell.value !== null) return false;
+              for (let other of cells) {
+                  if (other.value === char) {
+                      if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) {
+                          return false;
+                      }
+                  }
+              }
+              return true;
+          };
+
+          const newCells = cells.map(cell => {
+              if (cell.value === null && isValid(cell)) {
+                  if (!cell.drafts.includes(char)) {
+                      stateChanged = true;
+                      return { ...cell, drafts: [...cell.drafts, char] };
+                  }
+              }
+              return cell;
+          });
+
+          if (stateChanged) {
+              if (engineRef.current === 'none') {
+                  setHistory(past => { const newPast = [...past, cells]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
+              }
+              syncState({ cells: newCells });
+              showToast(`✏️ 已將 ${char} 標記至所有安全的空格中`);
+          } else {
+              showToast(`💡 沒有更多安全的空格可以標記 ${char} 了`);
+          }
+      };
+
+      // === 全新功能：處理雙擊與單擊數字鍵盤 ===
+      const lastNumClick = useRef({ char: null, time: 0 });
+      const onNumClick = (e, c) => {
+          e.preventDefault();
+          const now = Date.now();
+          const isDouble = (lastNumClick.current.char === c && now - lastNumClick.current.time < 350);
+
+          if (isDouble) {
+              lastNumClick.current = { char: null, time: 0 };
+              setSelectedChar(c);
+              if (interactionMode === 0) autoFillHiddenSingles(c);
+              else if (interactionMode === 1) autoFillDrafts(c);
+          } else {
+              lastNumClick.current = { char: c, time: now };
+              setSelectedChar(prev => prev === c ? null : c);
+          }
+      };
+
+      // === 全新功能：長按清除所有草稿 ===
+      const handleClearAllDrafts = () => {
+          const newCells = cells.map(c => ({...c, drafts: []}));
+          if (engineRef.current === 'none') {
+              setHistory(past => { const newPast = [...past, cells]; return newPast.length > 25 ? newPast.slice(newPast.length - 25) : newPast; });
+          }
+          syncState({ cells: newCells });
+          showToast("🧽 已一鍵清除所有草稿記號！");
+      };
+
+      const modeLongPressTimer = useRef(null);
+      const handleModePointerDown = (e) => {
+          if (interactionMode === 1) { // 只有在草稿模式下長按才有作用
+              modeLongPressTimer.current = setTimeout(() => {
+                  handleClearAllDrafts();
+                  modeLongPressTimer.current = null;
+                  if (navigator.vibrate) navigator.vibrate(50); // 手機震動回饋
+              }, 600); // 長按 0.6 秒觸發
+          }
+      };
+      const handleModePointerUp = (e) => {
+          if (modeLongPressTimer.current) {
+              // 代表還沒達到長按時間就放開了，執行原本的「短按切換模式」
+              clearTimeout(modeLongPressTimer.current);
+              modeLongPressTimer.current = null;
+              toggleInteractionMode();
+          } else if (interactionMode !== 1) {
+              // 非草稿模式，直接切換
+              toggleInteractionMode();
+          }
+      };
+      const handleModePointerLeave = () => {
+          if (modeLongPressTimer.current) {
+              clearTimeout(modeLongPressTimer.current);
+              modeLongPressTimer.current = null;
+          }
+      };
+
       const handleCellClick = (cellId) => {
         if (isWon || interactionMode >= 2) return;
         const cur = cells || []; const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
         
-        // 點擊已有數字的格子，若未選取數字，則自動切換為該數字
         if (selectedChar === null) {
             if (target.value !== null) setSelectedChar(target.value);
             return;
         }
 
-        // 若格子為題目給定，點擊時直接切換欲填寫的數字（或取消選取）
         if (target.isGiven) {
             setSelectedChar(prev => prev === target.value ? null : target.value);
             return; 
@@ -646,7 +804,7 @@
             if (nextCell.value === selectedChar) { nextCell.value = null; nextCell.owner = null; } 
             else { nextCell.value = selectedChar; nextCell.owner = myId; nextCell.drafts = []; }
         } else if (interactionMode === 1) { 
-            if (nextCell.value) { nextCell.value = null; nextCell.owner = null; }
+            if (nextCell.value !== null) return; // ✅ 防呆設計：格子已經有確定數字時，草稿模式點擊無效，不會覆蓋！
             let newDrafts = [...(nextCell.drafts || [])];
             if (newDrafts.includes(selectedChar)) newDrafts = newDrafts.filter(d => d !== selectedChar); else newDrafts.push(selectedChar);
             nextCell.drafts = newDrafts;
@@ -678,7 +836,6 @@
         setGenProgress("初始化盤面...");
         purgeGhostPlayers();
         
-        // 暫停一下讓畫面有時間渲染「生成中...」
         await new Promise(r => setTimeout(r, 50));
         
         const newData = await generateSudokuAsync(sId, dId, (msg) => {
@@ -717,7 +874,6 @@
         const pName = tempPlayerName.trim(); if (!pName) return showToast("⚠️ 請先設定顯示暱稱");
         setIsConnecting(true); 
 
-        // 主機開啟房間前，先生成第一張圖
         setIsGenerating(true);
         setGenProgress("初始化連線盤面...");
         await new Promise(r => setTimeout(r, 50));
@@ -1015,12 +1171,12 @@
                <div className={`w-full overflow-hidden transition-all duration-500 ease-in-out origin-top flex flex-col gap-2 ${isHeaderCollapsed ? 'max-h-0 opacity-0 scale-y-95' : 'max-h-[500px] opacity-100 scale-y-100'}`}>
                   <div className="bg-white border-[3px] border-[#2d2a26] rounded-xl p-3 text-[#2d2a26] shadow-[4px_4px_0px_#2d2a26] flex flex-col md:flex-row gap-3">
                      <div className="flex-1">
-                        <h3 className="text-sm md:text-base font-black mb-1 border-b-[3px] border-[#ffcc00] inline-block pb-0.5">📜 遊戲規則</h3>
+                        <h3 className="text-sm md:text-base font-black mb-1 border-b-[3px] border-[#ffcc00] inline-block pb-0.5">📜 遊戲規則與進階功能</h3>
                         <ol className="list-decimal list-outside ml-4 space-y-1 text-xs md:text-sm leading-relaxed font-bold">
-                           <li>選擇下方數字點擊方格。若不選下方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
-                           <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
-                           <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
-                           <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
+                           <li>選擇上方數字點擊方格。若不選數字，可點擊盤面數字「智慧吸取」高亮。</li>
+                           <li>草稿模式：在方格內標記多個小數字。<strong>有數字的格子不會被草稿覆蓋。</strong></li>
+                           <li><strong>雙擊數字鍵：</strong>在一般模式可自動連鎖填寫「唯一解空格」；草稿模式可一鍵標記全盤。</li>
+                           <li><strong>長按模式按鈕：</strong>草稿模式下長按 ✏️ 按鈕 0.6 秒可一鍵刪除所有草稿。</li>
                         </ol>
                      </div>
                   </div>
@@ -1107,12 +1263,13 @@
                 </div>
               )}
 
-              {/* 頂部數字鍵盤 */}
+              {/* 頂部數字鍵盤：支援雙擊偵測 */}
               <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto">
                  {cSizeDef.chars.map(c => (
                     <button
                        key={c}
-                       onClick={() => setSelectedChar(prev => prev === c ? null : c)}
+                       onClick={(e) => onNumClick(e, c)}
+                       title={`點擊選取 ${c}，雙擊可自動填寫`}
                        className={`w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-transform active:translate-y-1 active:shadow-none flex items-center justify-center shrink-0
                        ${selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50'}`}
                     >
@@ -1136,7 +1293,15 @@
                            {isHostRef.current && ( <button onClick={clearAllStrokes} className={`w-9 h-9 md:w-10 md:h-10 bg-red-500 hover:bg-red-600 text-white border-2 border-slate-800 rounded-full font-black text-lg transition-all flex items-center justify-center shadow-sm ml-1`} title="房主特權：清空所有人塗鴉">🚨</button> )}
                        </div>
                    )}
-                   <button onClick={toggleInteractionMode} title={`切換模式 (目前: ${modeTitles[interactionMode]})`} className={`w-10 h-10 md:w-12 md:h-12 border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none transition-all flex items-center justify-center ${interactionMode > 0 ? 'bg-[#ffcc00] text-slate-800' : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}>
+                   {/* 模式切換按鈕，加入長按判定 */}
+                   <button 
+                       onPointerDown={handleModePointerDown}
+                       onPointerUp={handleModePointerUp}
+                       onPointerLeave={handleModePointerLeave}
+                       onContextMenu={(e) => e.preventDefault()}
+                       title={`切換模式 (目前: ${modeTitles[interactionMode]})\n【草稿模式】長按可清除全盤草稿`} 
+                       className={`w-10 h-10 md:w-12 md:h-12 border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none transition-all flex items-center justify-center ${interactionMode > 0 ? 'bg-[#ffcc00] text-slate-800' : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}
+                   >
                      {modeIcons[interactionMode]}
                    </button>
                 </div>
@@ -1304,3 +1469,5 @@
   </script>
 </body>
 </html>
+
+

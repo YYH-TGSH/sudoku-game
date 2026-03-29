@@ -59,6 +59,8 @@
     .rainbow-stop { animation: rainbowStopAnim 20s linear infinite; }
     .rainbow-stroke { stroke: url(#rainbowGrad) !important; }
     .rainbow-fill { fill: url(#rainbowGrad) !important; }
+    .rainbow-bg { background: linear-gradient(90deg, #E3002B, #FFC90E, #87D300, #00C1D5, #935CB9, #E3002B); background-size: 200% 100%; animation: rb 2s linear infinite; }
+    @keyframes rb { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
 
     .custom-scrollbar::-webkit-scrollbar { width: 12px; height: 12px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-left: 2px solid #1e293b; border-top: 2px solid #1e293b; }
@@ -143,7 +145,6 @@
 
     function transpose(matrix) { return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex])); }
 
-    // === 幽靈賽解答運算 ===
     function getSolutionGrid(puzzleCells, sizeDef) {
         const { size, boxW, boxH, chars } = sizeDef;
         const grid = Array(size).fill(null).map(() => Array(size).fill(null));
@@ -176,7 +177,6 @@
         return null;
     }
 
-    // === 回溯法求解器 ===
     function countSolutions(grid, size, boxW, boxH, limit = 2) {
         let count = 0;
         
@@ -244,7 +244,6 @@
         return count;
     }
 
-    // === 非同步出題引擎 ===
     async function generateSudokuAsync(sizeId, diffId, onProgress) {
         const sizeDef = SIZES.find(s => s.id === sizeId);
         const diffDef = DIFFICULTIES.find(d => d.id === diffId);
@@ -496,6 +495,11 @@
 
       const activeCells = isGhostRace ? localCells : cells;
 
+      // === 確保新局時清除幽靈 ===
+      useEffect(() => {
+          setGhostHints({});
+      }, [startTime]);
+
       // 檢查數字是否填滿
       const completedChars = useMemo(() => {
           const counts = {};
@@ -546,22 +550,56 @@
 
       useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner]);
 
+      // 計算衝突
+      const conflictCellIds = useMemo(() => {
+        const conflicts = new Set();
+        const grid = Array(cSizeDef.size).fill(null).map(() => Array(cSizeDef.size).fill(null));
+        activeCells.forEach(c => { if (c.value) grid[c.y][c.x] = c; });
+
+        for (let i=0; i<cSizeDef.size; i++) {
+            const rowSeen = {}; const colSeen = {};
+            for (let j=0; j<cSizeDef.size; j++) {
+                let cr = grid[i][j]; if (cr) { if (rowSeen[cr.value]) { conflicts.add(cr.id); conflicts.add(rowSeen[cr.value].id); } else rowSeen[cr.value] = cr; }
+                let cc = grid[j][i]; if (cc) { if (colSeen[cc.value]) { conflicts.add(cc.id); conflicts.add(colSeen[cc.value].id); } else colSeen[cc.value] = cc; }
+            }
+        }
+        for (let by=0; by<cSizeDef.size; by+=cSizeDef.boxH) {
+            for (let bx=0; bx<cSizeDef.size; bx+=cSizeDef.boxW) {
+                const boxSeen = {};
+                for (let dy=0; dy<cSizeDef.boxH; dy++) {
+                    for (let dx=0; dx<cSizeDef.boxW; dx++) {
+                        let cb = grid[by+dy][bx+dx];
+                        if (cb) { if (boxSeen[cb.value]) { conflicts.add(cb.id); conflicts.add(boxSeen[cb.value].id); } else boxSeen[cb.value] = cb; }
+                    }
+                }
+            }
+        }
+        return conflicts;
+      }, [activeCells, cSizeDef]);
+
       // 幽靈信號與勝利監聽
       useEffect(() => {
           if (!activeCells || activeCells.length === 0 || isGenerating || winner) return;
-          const unfilled = activeCells.some(c => c.value === null);
-          const noConflicts = conflictCellIds.size === 0;
+          const isFull = activeCells.every(c => c.value !== null);
+          const hasNoConflicts = conflictCellIds.size === 0;
           
-          if (!unfilled && noConflicts && !isWinnerDeclaredRef.current) {
-              isWinnerDeclaredRef.current = true;
-              const finishTime = Date.now(); setEndTime(finishTime);
-              const me = playersList.find(p => p.id === myId);
-              const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - matchStartTime)/1000)) };
-              
-              if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
-              else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
+          if (isFull && hasNoConflicts) {
+              if (isGhostRace) {
+                  if (!isWinnerDeclaredRef.current) {
+                      isWinnerDeclaredRef.current = true;
+                      const finishTime = Date.now(); setEndTime(finishTime);
+                      const me = playersList.find(p => p.id === myId);
+                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - matchStartTime)/1000)) };
+                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
+                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
+                  }
+              } else {
+                  if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); }
+              }
+          } else {
+              if (isWon) { setIsWon(false); setEndTime(null); }
           }
-      }, [localCells, conflictCellIds, isGhostRace, isGenerating, winner, matchStartTime, playersList, myId]);
+      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, playersList, myId]);
 
       // 通用狀態同步 (完美隔離 Ghost Race 的 localCells 與安全廣播 autoFill 選取狀態)
       const syncState = (partial, shouldBroadcast = true) => {
@@ -569,7 +607,18 @@
           if (partial.localCells !== undefined) setLocalCells(partial.localCells);
           if (partial.levelData !== undefined) setLevelData(partial.levelData);
           if (partial.startTime !== undefined) setStartTime(partial.startTime);
-          if (partial.isGenerating !== undefined) setIsGenerating(partial.isGenerating);
+          
+          if (partial.isGenerating !== undefined) {
+              setIsGenerating(partial.isGenerating);
+              // 同步正在生成狀態時，強制重置所有人的勝利狀態
+              if (partial.isGenerating) {
+                  setIsWon(false);
+                  setWinner(null);
+                  setEndTime(null);
+                  isWinnerDeclaredRef.current = false;
+              }
+          }
+          
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
           if (partial.winner !== undefined) setWinner(partial.winner);
           if (partial.solutionGrid !== undefined) solutionGridRef.current = partial.solutionGrid;
@@ -1013,8 +1062,13 @@
               if (!isCompleted) setSelectedChar(prev => prev === c ? null : c);
           } else if (tracker.count === 2) {
               if (!isCompleted) {
-                  if (interactionMode === 0) autoFillHiddenSingles(c);
-                  else if (interactionMode === 1) autoFillDrafts(c);
+                  if (isGhostRace) {
+                      showToast("⚠️ 幽靈賽為確保公平，不支援自動連鎖填寫！");
+                      tracker.count = 0;
+                  } else {
+                      if (interactionMode === 0) autoFillHiddenSingles(c);
+                      else if (interactionMode === 1) autoFillDrafts(c);
+                  }
               }
           } else if (tracker.count === 5) {
               if (!isGhostRace) {
@@ -1073,40 +1127,37 @@
         setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
       };
 
-      // 計算衝突
-      const conflictCellIds = useMemo(() => {
-        const conflicts = new Set();
-        const grid = Array(cSizeDef.size).fill(null).map(() => Array(cSizeDef.size).fill(null));
-        activeCells.forEach(c => { if (c.value) grid[c.y][c.x] = c; });
+      // ==== 全新：進度計算與顯示邏輯 ====
+      const totalEmpty = useMemo(() => {
+          const targetCells = isGhostRace ? localCells : cells;
+          if (!targetCells || targetCells.length === 0) return 1; 
+          return targetCells.filter(c => !c.isGiven).length || 1;
+      }, [isGhostRace, localCells, cells]);
 
-        for (let i=0; i<cSizeDef.size; i++) {
-            const rowSeen = {}; const colSeen = {};
-            for (let j=0; j<cSizeDef.size; j++) {
-                let cr = grid[i][j]; if (cr) { if (rowSeen[cr.value]) { conflicts.add(cr.id); conflicts.add(rowSeen[cr.value].id); } else rowSeen[cr.value] = cr; }
-                let cc = grid[j][i]; if (cc) { if (colSeen[cc.value]) { conflicts.add(cc.id); conflicts.add(colSeen[cc.value].id); } else colSeen[cc.value] = cc; }
-            }
-        }
-        for (let by=0; by<cSizeDef.size; by+=cSizeDef.boxH) {
-            for (let bx=0; bx<cSizeDef.size; bx+=cSizeDef.boxW) {
-                const boxSeen = {};
-                for (let dy=0; dy<cSizeDef.boxH; dy++) {
-                    for (let dx=0; dx<cSizeDef.boxW; dx++) {
-                        let cb = grid[by+dy][bx+dx];
-                        if (cb) { if (boxSeen[cb.value]) { conflicts.add(cb.id); conflicts.add(boxSeen[cb.value].id); } else boxSeen[cb.value] = cb; }
-                    }
-                }
-            }
-        }
-        return conflicts;
-      }, [activeCells, cSizeDef]);
+      // 合作模式的玩家比例分配
+      const playerProgress = useMemo(() => {
+          if (isGhostRace) return [];
+          const counts = {};
+          cells.forEach(c => {
+              if (!c.isGiven && c.value !== null && !conflictCellIds.has(c.id) && c.owner) {
+                  counts[c.owner] = (counts[c.owner] || 0) + 1;
+              }
+          });
+          return Object.entries(counts).map(([uid, count]) => ({
+              uid,
+              color: getPlayerColor(uid),
+              pct: (count / totalEmpty) * 100
+          }));
+      }, [cells, conflictCellIds, totalEmpty, playersList, isGhostRace]);
 
-      const myProgress = useMemo(() => {
+      // 幽靈賽的個人進度
+      const myProgressPct = useMemo(() => {
           if (!isGhostRace || !localCells.length) return 0;
-          const totalEmpty = localCells.filter(c => !c.isGiven).length;
-          if (totalEmpty === 0) return 100;
           const filledCorrect = localCells.filter(c => !c.isGiven && c.value !== null && conflictCellIds.size === 0).length;
           return Math.floor((filledCorrect / totalEmpty) * 100);
-      }, [isGhostRace, localCells, conflictCellIds]);
+      }, [isGhostRace, localCells, conflictCellIds, totalEmpty]);
+      
+      const teamProgressPct = isGhostRace ? myProgressPct : Math.floor(playerProgress.reduce((sum, p) => sum + p.pct, 0));
 
       // 選項 Y: 輔助高亮系統 (十字與宮格)
       const highlightZones = useMemo(() => {
@@ -1276,14 +1327,13 @@
                 if (sId !== sizeId) { setZoomLevel(1); setZoomModeIdx(0); } 
                 setEndTime(null); setHideVictoryModal(false);
                 setSelectedChar(null);
-                setMatchStartTime(now);
                 setGenProgress("");
             });
         }, 100);
       };
 
-      const handleSizeChange = (e) => { if (engineRef.current === 'none' || isHostRef.current) generateAndSync(Number(e.target.value), diffId); };
-      const handleDiffChange = (e) => { if (engineRef.current === 'none' || isHostRef.current) generateAndSync(sizeId, e.target.value); };
+      const handleSizeChange = (e) => { generateAndSync(Number(e.target.value), diffId); };
+      const handleDiffChange = (e) => { generateAndSync(sizeId, e.target.value); };
       const handleRegenerateRandom = () => { generateAndSync(sizeId, diffId); };
 
       const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
@@ -1302,6 +1352,10 @@
         setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null;
         setCursors({}); setRipples([]); setInteractionMode(0);
         
+        // 徹底清除幽靈賽狀態，避免單機模式功能被鎖死
+        setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false;
+        
+        // 切回單機時，恢復為預設單機玩家（藍色）
         setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11] }]);
       };
 
@@ -1309,7 +1363,7 @@
           switchToOffline(); 
           setScreen('game'); 
           setIsHeaderCollapsed(false); 
-          generateAndSync(sizeId, diffId); 
+          generateAndSync(sizeId, diffId, false); 
       };
 
       const initiateHostGame = async () => {
@@ -1347,7 +1401,7 @@
 
       const joinExistingGame = () => {
         const pName = tempPlayerName.trim(); const rId = tempRoomId.trim().toUpperCase(); if (!pName || !rId) return showToast("⚠️ 請完整輸入暱稱與代碼");
-        setIsConnecting(true); if (/^[a-zA-Z]/.test(rId)) { setEngine('firebase'); engineRef.current = 'firebase'; setupFirebase(rId, pName, false); } else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(rId, pName, false); }
+        setIsConnecting(true); if (/^[a-zA-Z]/.test(rId) || stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; setupFirebase(rId, pName, false); } else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(rId, pName, false); }
       };
 
       const setupFirebase = async (rId, pName, isCreating) => {
@@ -1378,14 +1432,19 @@
               if (gs.cells && gs.cells.length > 0) setCells(gs.cells); 
               if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); 
               if (gs.levelData) setLevelData(gs.levelData);
-              if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
               if (gs.startTime) setStartTime(gs.startTime); if (gs.strokes !== undefined) setStrokes(gs.strokes);
-              if (gs.isGenerating !== undefined) setIsGenerating(gs.isGenerating);
+              
+              if (gs.isGenerating !== undefined) {
+                  setIsGenerating(gs.isGenerating);
+                  if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; }
+              }
+              
               if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar);
               if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace);
               if (gs.winner !== undefined) setWinner(gs.winner);
               if (gs.solutionGrid !== undefined) solutionGridRef.current = gs.solutionGrid;
+              if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
               stateRef.current = gs;
             }
           }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
@@ -1403,7 +1462,7 @@
                   if (m.type === 'JOIN') {
                       c.uid = m.uid; 
                       setPlayersList(prev => {
-                          let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName, isHost: false, color: m.color || getAvailableColor(prev) }];
+                          let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev) }];
                           connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: stateRef.current, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList;
                       });
                   } else if (m.type === 'LEAVE') {
@@ -1439,7 +1498,7 @@
             const guestP = new Peer(); peerRef.current = guestP;
             guestP.on('open', function() {
                 const c = guestP.connect(rId + '-host'); connRef.current = c;
-                c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName, uid: myId }); });
+                c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName || "玩家", uid: myId, color: myColorRef.current }); });
                 c.on('data', function(m) {
                   if (m.type === 'INIT') { if (m.players) setPlayersList(m.players); if (m.data) syncState(m.data, false); }
                   else if (m.type === 'SYNC') syncState(m.data, false);
@@ -1448,7 +1507,7 @@
                   else if (m.type === 'GHOST_WINNER') { setWinner(m.winner); if(m.winner.id === myId) setEndTime(Date.now()); }
                   else if (m.type === 'CURSOR') setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   else if (m.type === 'CLICK') setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
-                  else if (m.type === 'REQ_REJOIN') connRef.current.send({ type: 'JOIN', pName: myNameRef.current, uid: myId, color: myColorRef.current });
+                  else if (m.type === 'REQ_REJOIN') connRef.current.send({ type: 'JOIN', pName: myNameRef.current || "玩家", uid: myId, color: myColorRef.current });
                 });
                 c.on('close', function() { showToast("⚠️ 主機已離線，切換為單機模式"); switchToOffline(); });
             });
@@ -1501,7 +1560,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v1.2.6)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.0.2)</div>
           </div>
         );
       }
@@ -1511,10 +1570,12 @@
           <div className="h-screen w-screen flex flex-col items-center justify-center p-4 relative animate-fadeIn">
             <div className="bg-[#fffaf0] border-4 border-slate-800 p-8 rounded-xl shadow-[10px_10px_0px_rgba(30,41,59,1)] max-w-2xl w-full z-10 transform rotate-1">
               <h2 onClick={() => { const nc = titleClicks + 1; if (nc >= 3) { setStableMode(!stableMode); setTitleClicks(0); } else setTitleClicks(nc); }} className="text-2xl font-black text-slate-800 mb-6 inline-block border-b-4 border-[#ffcc00] pb-1 cursor-pointer select-none">🌐 多人連線選單</h2>
+              
               <div className="mb-6 bg-white p-4 rounded-lg border-2 border-slate-800 shadow-[4px_4px_0px_rgba(30,41,59,1)]">
                 <label className="block text-slate-800 font-black text-sm mb-2">第一步：設定顯示暱稱</label>
                 <input type="text" placeholder="例如：王小明" value={tempPlayerName} onChange={(e) => setTempPlayerName(e.target.value)} disabled={isConnecting} className="w-full border-2 border-slate-800 rounded-md p-3 font-bold bg-yellow-50 outline-none focus:ring-2 ring-[#ffcc00] disabled:opacity-50" />
               </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div className="border-t-4 md:border-t-0 md:border-r-4 border-dashed border-slate-300 pt-4 md:pt-0 md:pr-6 flex flex-col h-full">
                    <h3 className="font-black text-lg mb-2 flex items-center gap-2 text-slate-800">👑 建立對局大廳</h3>
@@ -1549,7 +1610,7 @@
                   <div className="flex items-center gap-2 flex-wrap flex-1">
                      <h1 className="font-black tracking-tight uppercase text-lg md:text-2xl text-[#2d2a26] flex items-center gap-1">🔢<span className="hidden sm:inline">數獨</span></h1>
                      <div className="flex items-center gap-1 bg-[#2d2a26] text-white px-2 py-1 rounded-md font-mono font-bold shadow-[2px_2px_0px_rgba(0,0,0,0.4)] text-xs md:text-sm whitespace-nowrap">
-                        <GameTimer startTime={startTime} endTime={endTime || (winner?matchStartTime:null)} isRunning={!isWon && !winner && screen === 'game'} />
+                        <GameTimer startTime={startTime} endTime={endTime || (winner?startTime:null)} isRunning={!isWon && !winner && screen === 'game'} />
                      </div>
                      {isMultiplayer && ( 
                          <div className="flex items-center gap-1">
@@ -1564,13 +1625,20 @@
                              </button>
                          </div>
                      )}
-                     {isMultiplayer && matchStartTime && !winner && (
+                     {/* 團隊與個人進度條 (常駐顯示) */}
+                     {isMultiplayer && startTime && !winner && !isWon && !isGenerating && (
                          <div className="flex-1 max-w-[300px] flex items-center gap-2 bg-white px-2 py-1 rounded border-2 border-slate-800 shadow-[2px_2px_0px_rgba(0,0,0,0.1)] ml-2">
-                            <span className="text-xs font-black text-slate-500 whitespace-nowrap">團隊/我的進度</span>
-                            <div className="flex-1 h-3 bg-slate-200 rounded-full border border-slate-400 overflow-hidden">
-                                <div className="h-full bg-emerald-500 transition-all duration-300" style={{width: `${myProgress}%`}} />
+                            <span className="text-xs font-black text-slate-500 whitespace-nowrap">{isGhostRace ? '我的進度' : '團隊進度'}</span>
+                            <div className="flex-1 h-3 bg-slate-200 rounded-full border border-slate-400 overflow-hidden flex">
+                                {isGhostRace ? (
+                                    <div className="h-full bg-emerald-500 transition-all duration-300" style={{width: `${myProgressPct}%`}} />
+                                ) : (
+                                    playerProgress.map(pp => (
+                                        <div key={pp.uid} className={`h-full transition-all duration-300 ${pp.color === 'rainbow' ? 'rainbow-bg' : ''}`} style={{width: `${pp.pct}%`, backgroundColor: pp.color !== 'rainbow' ? pp.color : undefined}} />
+                                    ))
+                                )}
                             </div>
-                            <span className="text-xs font-black text-emerald-600 font-mono w-9 text-right">{myProgress}%</span>
+                            <span className="text-xs font-black text-emerald-600 font-mono w-9 text-right">{teamProgressPct}%</span>
                          </div>
                      )}
                   </div>
@@ -1602,7 +1670,7 @@
                   </div>
                   
                   <div className="flex gap-1 md:gap-2 flex-wrap items-center ml-auto">
-                     {(!isMultiplayer || isHostRef.current) && ( <button onClick={handleRegenerateRandom} disabled={isMultiplayer && !isHostRef.current} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1 disabled:opacity-50" title="新題">🎲<span className="hidden sm:inline">新題</span></button> )}
+                     <button onClick={handleRegenerateRandom} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="新題">🎲<span className="hidden sm:inline">新題</span></button>
                      {!isMultiplayer && ( <button onClick={handleUndo} disabled={history.length === 0 || isWon} className="px-2 py-1 md:px-3 md:py-1.5 bg-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] disabled:opacity-50 disabled:shadow-none active:translate-y-1 active:shadow-none transition-all flex items-center gap-1 text-[#2d2a26]" title="復原">↩️<span className="hidden sm:inline">復原</span></button> )}
                      <button onClick={handleReset} className="px-2 py-1 md:px-3 md:py-1.5 bg-red-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="重置">🔄<span className="hidden sm:inline">重置</span></button>
                      <button onClick={() => setShowSaveModal(true)} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="存檔/讀檔">💾<span className="hidden sm:inline">存檔</span></button>
@@ -1647,6 +1715,13 @@
               </div>
             )}
 
+            {!isHeaderCollapsed && (
+              <div className="h-8 shrink-0 flex items-center justify-center bg-slate-800 text-white border-b-4 border-slate-800 relative z-30 font-bold tracking-wide">
+                <span className="text-xs md:text-sm hidden md:inline">支援滑鼠拖曳、滾輪縮放；向下滑動畫布可自動收合選單。</span>
+                <span className="text-xs md:text-sm md:hidden">點選上方數字再點擊方格。支援雙指縮放與平移。</span>
+              </div>
+            )}
+
             <div className="relative z-0 flex-1 flex flex-col min-h-0 bg-[#fffaf0]">
               
               {isGenerating && (
@@ -1654,7 +1729,7 @@
                   <div className="text-slate-800 font-black text-2xl md:text-4xl tracking-widest flex items-center select-none animate-pulse mb-4">
                     題目生成中<span className="animate-loading-dots inline-block w-[1.5em] text-left"></span>
                   </div>
-                  {/* 所有人都看得到進度，且如果沒有 genProgress (加入較晚的玩家) 也會顯示此畫面 */}
+                  {/* 所有人都看得到進度 */}
                   {genProgress && (
                     <div className="text-slate-600 font-bold text-sm md:text-base animate-fadeIn whitespace-pre-line text-center">
                        {genProgress}
@@ -1666,7 +1741,7 @@
                 </div>
               )}
 
-              {/* 頂部數字鍵盤：支援雙擊偵測，並加入 select-none 防止文字反白 */}
+              {/* 頂部數字鍵盤：支援雙擊偵測 */}
               <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto select-none">
                  {cSizeDef.chars.map(c => {
                     const isCompleted = completedChars.has(c);
@@ -1700,7 +1775,7 @@
                            {isHostRef.current && ( <button onClick={clearAllStrokes} className={`w-9 h-9 md:w-10 md:h-10 bg-red-500 hover:bg-red-600 text-white border-2 border-slate-800 rounded-full font-black text-lg transition-all flex items-center justify-center shadow-sm ml-1`} title="房主特權：清空所有人塗鴉">🚨</button> )}
                        </div>
                    )}
-                   {/* 模式切換按鈕，加入長按判定 */}
+                   {/* 模式切換按鈕 */}
                    <button 
                        onPointerDown={handleModePointerDown}
                        onPointerUp={handleModePointerUp}

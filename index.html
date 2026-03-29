@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="連線數獨">
-  <title>連線數獨 - Multiplayer Sudoku</title>
+  <meta name="apple-mobile-web-app-title" content="數獨">
+  <title>數獨 - Sudoku</title>
   
   <link rel="icon" href="icon.png" type="image/png" sizes="180x180">
   <link rel="apple-touch-icon" href="icon.png">
@@ -496,7 +496,7 @@
 
       const activeCells = isGhostRace ? localCells : cells;
 
-      // 檢查數字是否填滿 (修復單機與合作模式按鈕不反灰問題，正確對齊 activeCells)
+      // 檢查數字是否填滿
       const completedChars = useMemo(() => {
           const counts = {};
           activeCells.forEach(c => { if (c.value !== null) counts[c.value] = (counts[c.value] || 0) + 1; });
@@ -552,23 +552,16 @@
           const unfilled = activeCells.some(c => c.value === null);
           const noConflicts = conflictCellIds.size === 0;
           
-          if (!unfilled && noConflicts) {
-              if (isGhostRace) {
-                  if (!isWinnerDeclaredRef.current) {
-                      isWinnerDeclaredRef.current = true;
-                      const finishTime = Date.now(); setEndTime(finishTime);
-                      const me = playersList.find(p => p.id === myId);
-                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - matchStartTime)/1000)) };
-                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
-                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
-                  }
-              } else {
-                  if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); }
-              }
-          } else {
-              if (isWon) { setIsWon(false); setEndTime(null); }
+          if (!unfilled && noConflicts && !isWinnerDeclaredRef.current) {
+              isWinnerDeclaredRef.current = true;
+              const finishTime = Date.now(); setEndTime(finishTime);
+              const me = playersList.find(p => p.id === myId);
+              const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - matchStartTime)/1000)) };
+              
+              if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
+              else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
           }
-      }, [activeCells, conflictCellIds, isWon, isGenerating, isGhostRace, winner, matchStartTime, playersList, myId]);
+      }, [localCells, conflictCellIds, isGhostRace, isGenerating, winner, matchStartTime, playersList, myId]);
 
       // 通用狀態同步 (完美隔離 Ghost Race 的 localCells 與安全廣播 autoFill 選取狀態)
       const syncState = (partial, shouldBroadcast = true) => {
@@ -1589,7 +1582,7 @@
                      <div className="flex-1">
                         <h3 className="text-sm md:text-base font-black mb-1 border-b-[3px] border-[#ffcc00] inline-block pb-0.5">📜 遊戲規則</h3>
                         <ol className="list-decimal list-outside ml-4 space-y-1 text-xs md:text-sm leading-relaxed font-bold">
-                           <li>選擇下方數字點擊方格。若不選下方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
+                           <li>選擇上方數字點擊方格。若不選上方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
                            <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
                            <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
                            <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
@@ -1896,9 +1889,7 @@
                         </div>
                     )}
                     <div className="flex justify-center gap-3">
-                      {(isHostRef.current || !isMultiplayer) && ( 
-                          <button onClick={triggerRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
-                      )}
+                      <button onClick={triggerRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
                     </div>
                   </div>
                 </div>

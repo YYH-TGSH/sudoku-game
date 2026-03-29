@@ -46,10 +46,10 @@
     @keyframes dotAnim { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
     .animate-loading-dots::after { content: ''; animation: dotAnim 1.5s infinite; }
 
-    /* 幽靈顯靈特效：格子的滿版呼吸閃爍 */
+    /* 幽靈顯靈特效：網點閃爍 */
     @keyframes ghostPulse {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 0.8; }
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 0.9; }
     }
     .ghost-highlight { animation: ghostPulse 2s ease-in-out infinite; }
 
@@ -388,7 +388,7 @@
       const playerIdRef = useRef(Math.random().toString(36).substring(2, 12));
       const myId = playerIdRef.current;
       const myNameRef = useRef("");
-      const myColorRef = useRef(COLORS[11]); // 預設使用藍色 (#008CC1)
+      const myColorRef = useRef(COLORS[11]); // 預設藍色
 
       const emptyLevelData = { sizeDef: SIZES[1], diffDef: DIFFICULTIES[1], cells: [] };
       const initialDataRef = useRef(emptyLevelData);
@@ -403,16 +403,14 @@
       
       const [levelData, setLevelData] = useState(initialDataRef.current);
       const [cells, setCells] = useState(initialDataRef.current.cells);
-      const [localCells, setLocalCells] = useState([]); // 玩家自己的獨立盤面
-      const solutionGridRef = useRef(null); // 答案地圖
-      const [ghostHints, setGhostHints] = useState({}); // { cellId: { playerId: color } }
+      const [localCells, setLocalCells] = useState([]); 
+      const solutionGridRef = useRef(null); 
+      const [ghostHints, setGhostHints] = useState({}); 
       const [isGhostRace, setIsGhostRace] = useState(false);
-      const [winner, setWinner] = useState(null); // { id, name, color, time }
-      const [matchStartTime, setMatchStartTime] = useState(null);
+      const [winner, setWinner] = useState(null); 
       const isWinnerDeclaredRef = useRef(false);
 
       const [strokes, setStrokes] = useState([]);
-      
       const [history, setHistory] = useState([]);
       const [isWon, setIsWon] = useState(false);
       const [hideVictoryModal, setHideVictoryModal] = useState(false);
@@ -420,6 +418,7 @@
       
       const [startTime, setStartTime] = useState(Date.now());
       const [endTime, setEndTime] = useState(null);
+      const [matchStartTime, setMatchStartTime] = useState(null);
 
       const [zoomLevel, setZoomLevel] = useState(1);
       const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
@@ -450,7 +449,6 @@
       const [stableMode, setStableMode] = useState(false); 
       const [titleClicks, setTitleClicks] = useState(0);
       
-      // 確保單機模式也有初始玩家列表，並使用預設藍色
       const [playersList, setPlayersList] = useState([{ id: myId, name: "單機玩家", isHost: true, color: COLORS[11] }]);
       const [isConnecting, setIsConnecting] = useState(false);
 
@@ -534,7 +532,6 @@
       myNameRef.current = _mePlayer ? _mePlayer.name : "";
       myColorRef.current = myCurrentColor;
 
-      useEffect(function() { if (engine !== 'peerjs' && interactionMode >= 2) setInteractionMode(0); }, [engine, interactionMode]);
       useEffect(() => { zoomLevelRef.current = zoomLevel; }, [zoomLevel]);
       useEffect(() => { zoomModeIdxRef.current = zoomModeIdx; }, [zoomModeIdx]);
 
@@ -589,7 +586,7 @@
                       isWinnerDeclaredRef.current = true;
                       const finishTime = Date.now(); setEndTime(finishTime);
                       const me = playersList.find(p => p.id === myId);
-                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - matchStartTime)/1000)) };
+                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)) };
                       if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
                       else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
                   }
@@ -599,14 +596,17 @@
           } else {
               if (isWon) { setIsWon(false); setEndTime(null); }
           }
-      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, playersList, myId]);
+      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId]);
 
       // 通用狀態同步 (完美隔離 Ghost Race 的 localCells 與安全廣播 autoFill 選取狀態)
       const syncState = (partial, shouldBroadcast = true) => {
           if (partial.cells !== undefined) setCells(partial.cells);
           if (partial.localCells !== undefined) setLocalCells(partial.localCells);
           if (partial.levelData !== undefined) setLevelData(partial.levelData);
-          if (partial.startTime !== undefined) setStartTime(partial.startTime);
+          if (partial.startTime !== undefined) {
+              setStartTime(partial.startTime);
+              setMatchStartTime(partial.startTime);
+          }
           
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
@@ -621,7 +621,13 @@
           
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
           if (partial.winner !== undefined) setWinner(partial.winner);
-          if (partial.solutionGrid !== undefined) solutionGridRef.current = partial.solutionGrid;
+          
+          if (partial.solutionGrid !== undefined) {
+              const parsedGrid = typeof partial.solutionGrid === 'string' ? JSON.parse(partial.solutionGrid) : partial.solutionGrid;
+              solutionGridRef.current = parsedGrid;
+              partial.solutionGrid = parsedGrid;
+          }
+          
           if (partial.sizeId !== undefined) setSizeId(partial.sizeId);
           if (partial.diffId !== undefined) setDiffId(partial.diffId);
           if (partial.strokes !== undefined) setStrokes(partial.strokes);
@@ -638,7 +644,7 @@
                   isGenerating: updatedState.isGenerating,
                   isGhostRace: updatedState.isGhostRace,
                   winner: updatedState.winner,
-                  solutionGrid: updatedState.solutionGrid,
+                  solutionGrid: updatedState.solutionGrid ? JSON.stringify(updatedState.solutionGrid) : null,
                   sizeId: updatedState.sizeId,
                   diffId: updatedState.diffId,
                   strokes: updatedState.strokes
@@ -1122,19 +1128,16 @@
 
       const toggleInteractionMode = () => {
         if (isAutoFillingRef.current) return;
-        const nextMode = (interactionMode + 1) % (engineRef.current === 'peerjs' ? 3 : 2);
-        if(isGhostRace && nextMode === 2) return; 
+        const nextMode = (interactionMode + 1) % 3;
         setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
       };
 
-      // ==== 全新：進度計算與顯示邏輯 ====
       const totalEmpty = useMemo(() => {
           const targetCells = isGhostRace ? localCells : cells;
           if (!targetCells || targetCells.length === 0) return 1; 
           return targetCells.filter(c => !c.isGiven).length || 1;
       }, [isGhostRace, localCells, cells]);
 
-      // 合作模式的玩家比例分配
       const playerProgress = useMemo(() => {
           if (isGhostRace) return [];
           const counts = {};
@@ -1150,7 +1153,6 @@
           }));
       }, [cells, conflictCellIds, totalEmpty, playersList, isGhostRace]);
 
-      // 幽靈賽的個人進度
       const myProgressPct = useMemo(() => {
           if (!isGhostRace || !localCells.length) return 0;
           const filledCorrect = localCells.filter(c => !c.isGiven && c.value !== null && conflictCellIds.size === 0).length;
@@ -1413,7 +1415,9 @@
         try {
           if (isCreating) {
             setIsHost(true); isHostRef.current = true;
-            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([])}], gameState: JSON.parse(JSON.stringify(stateRef.current)), updatedAt: Date.now() }), timeout(6000)]);
+            const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
+            if (safeGameState.solutionGrid) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
+            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([])}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
           } else {
             const snap = await Promise.race([getDoc(rDoc), timeout(6000)]);
             if (!snap.exists()) { setIsConnecting(false); switchToOffline(); return showToast("⚠️ 找不到該對局大廳，請確認代碼"); }
@@ -1443,7 +1447,13 @@
               if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace);
               if (gs.winner !== undefined) setWinner(gs.winner);
-              if (gs.solutionGrid !== undefined) solutionGridRef.current = gs.solutionGrid;
+              
+              if (gs.solutionGrid !== undefined) {
+                  const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid;
+                  solutionGridRef.current = parsedGrid;
+                  gs.solutionGrid = parsedGrid;
+              }
+              
               if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
               stateRef.current = gs;
             }
@@ -1453,7 +1463,7 @@
 
       const setupPeerJS = (rId, pName, isCreating) => {
         if (isCreating) {
-            const p = new Peer(rId + '-host'); peerRef.current = p;
+            const p = new Peer('yyh-tgsh-' + rId + '-host'); peerRef.current = p;
             p.on('open', function() {
               setIsHost(true); isHostRef.current = true; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]) }]);
               p.on('connection', function(c) {
@@ -1497,7 +1507,7 @@
         } else {
             const guestP = new Peer(); peerRef.current = guestP;
             guestP.on('open', function() {
-                const c = guestP.connect(rId + '-host'); connRef.current = c;
+                const c = guestP.connect('yyh-tgsh-' + rId + '-host'); connRef.current = c;
                 c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName || "玩家", uid: myId, color: myColorRef.current }); });
                 c.on('data', function(m) {
                   if (m.type === 'INIT') { if (m.players) setPlayersList(m.players); if (m.data) syncState(m.data, false); }
@@ -1556,11 +1566,11 @@
                  </div>
                  <div className="flex flex-col gap-5">
                     <button onClick={startSinglePlayer} className="w-full py-4 bg-white border-4 border-slate-800 rounded-xl font-black text-xl text-slate-800 shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all transform rotate-1">👤 單機挑戰</button>
-                    <button onClick={() => setScreen('join')} className="w-full py-4 bg-emerald-400 border-4 border-slate-800 rounded-xl font-black text-xl text-slate-900 shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all transform -rotate-1">🌐 多人對戰</button>
+                    <button onClick={() => setScreen('join')} className="w-full py-4 bg-emerald-400 border-4 border-slate-800 rounded-xl font-black text-xl text-slate-900 shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(30,41,59,1)] transition-all transform -rotate-1">🌐 多人連線</button>
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.0.2)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.2.2)</div>
           </div>
         );
       }
@@ -1610,7 +1620,7 @@
                   <div className="flex items-center gap-2 flex-wrap flex-1">
                      <h1 className="font-black tracking-tight uppercase text-lg md:text-2xl text-[#2d2a26] flex items-center gap-1">🔢<span className="hidden sm:inline">數獨</span></h1>
                      <div className="flex items-center gap-1 bg-[#2d2a26] text-white px-2 py-1 rounded-md font-mono font-bold shadow-[2px_2px_0px_rgba(0,0,0,0.4)] text-xs md:text-sm whitespace-nowrap">
-                        <GameTimer startTime={startTime} endTime={endTime || (winner?startTime:null)} isRunning={!isWon && !winner && screen === 'game'} />
+                        <GameTimer startTime={startTime} endTime={endTime || (winner?matchStartTime:null)} isRunning={!isWon && !winner && screen === 'game'} />
                      </div>
                      {isMultiplayer && ( 
                          <div className="flex items-center gap-1">
@@ -1727,7 +1737,10 @@
               {isGenerating && (
                 <div className="absolute inset-0 z-[40] flex flex-col items-center justify-center pointer-events-none bg-[#fffaf0]/80 backdrop-blur-sm">
                   <div className="text-slate-800 font-black text-2xl md:text-4xl tracking-widest flex items-center select-none animate-pulse mb-4">
-                    題目生成中<span className="animate-loading-dots inline-block w-[1.5em] text-left"></span>
+                    <div className="relative inline-flex items-center justify-center">
+                      <span>題目生成中</span>
+                      <span className="absolute left-full animate-loading-dots w-[1.5em] text-left"></span>
+                    </div>
                   </div>
                   {/* 所有人都看得到進度 */}
                   {genProgress && (
@@ -1813,8 +1826,8 @@
                       </linearGradient>
                       {/* === 幽靈顯靈圓點 Pattern === */}
                       {playersList.map(p => (
-                          <pattern key={`ghost-pat-${p.id}`} id={`ghost-pat-${p.id}`} x="0" y="0" width="12" height="12" patternUnits="userSpaceOnUse">
-                              <circle cx="6" cy="6" r="3" fill={p.color === 'rainbow' ? 'url(#rainbowGrad)' : p.color} opacity="0.6" />
+                          <pattern key={`ghost-pat-${p.id}`} id={`ghost-pat-${p.id}`} x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                              <circle cx="5" cy="5" r="2.5" fill={p.color === 'rainbow' ? 'url(#rainbowGrad)' : p.color} opacity="0.8" />
                           </pattern>
                       ))}
                     </defs>
@@ -1849,7 +1862,7 @@
                     {strokes.map(s => {
                         const strokeUid = s.uid || s.id.split('-')[1]; const isOwnStroke = strokeUid === myId;
                         let strokeColor = s.color; let strokeOpacity = 1; let isRainbow = false;
-                        if (isMultiplayer && strokeUid) { strokeColor = getPlayerColor(strokeUid); if (strokeColor === 'rainbow') isRainbow = true; strokeOpacity = isOwnStroke ? 1 : 0.5; }
+                        if (strokeUid) { strokeColor = getPlayerColor(strokeUid); if (strokeColor === 'rainbow') isRainbow = true; strokeOpacity = (isMultiplayer && !isOwnStroke) ? 0.5 : 1; }
                         return <path key={s.id} d={s.path} fill="none" stroke={isRainbow ? undefined : strokeColor} strokeOpacity={strokeOpacity} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`doodle-stroke ${isRainbow ? 'rainbow-stroke' : ''}`} data-stroke-id={s.id} style={{ pointerEvents: (interactionMode === 2 && drawSubMode === 'eraser' && isOwnStroke) ? 'stroke' : 'none' }} />;
                     })}
                     <path ref={drawingPathRef} fill="none" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeOpacity={1} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke' : ''}`} style={{ display: 'none' }} />

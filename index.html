@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="數獨">
-  <title>數獨 - Sudoku</title>
+  <meta name="apple-mobile-web-app-title" content="數獨 - 大亂鬥">
+  <title>數獨 Master - 平行宇宙競速版</title>
   
-  <link rel="icon" href="icon.png" type="image/png" sizes="180x180">
-  <link rel="apple-touch-icon" href="icon.png">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23ffcc00%22 rx=%2220%22/><text y=%2272%22 x=%2216%22 font-size=%2265%22>⚡</text></svg>">
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -42,21 +41,16 @@
     .animate-fadeOut { animation: fadeOut 0.3s ease-in forwards; }
     
     @keyframes rippleAnim { 0% { transform: scale(0.1); opacity: 0.8; stroke-width: 6px; } 100% { transform: scale(3); opacity: 0; stroke-width: 2px; } }
-    
     @keyframes dotAnim { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
     .animate-loading-dots::after { content: ''; animation: dotAnim 1.5s infinite; }
 
-    /* 炸彈與爆炸特效 */
-    @keyframes bombWiggle {
-        0%, 100% { transform: rotate(-5deg) scale(1); }
-        50% { transform: rotate(5deg) scale(1.15); filter: drop-shadow(0 0 5px rgba(255,0,0,0.4)); }
-    }
+    @keyframes ghostPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+    .ghost-highlight { animation: ghostPulse 2s ease-in-out infinite; }
+
+    @keyframes bombWiggle { 0%, 100% { transform: rotate(-5deg) scale(1); } 50% { transform: rotate(5deg) scale(1.15); filter: drop-shadow(0 0 5px rgba(255,0,0,0.4)); } }
     .anim-bomb { animation: bombWiggle 0.4s ease-in-out infinite; cursor: pointer; pointer-events: auto; }
     
-    @keyframes explosionFade {
-        0% { transform: scale(0.5); opacity: 1; }
-        100% { transform: scale(3); opacity: 0; }
-    }
+    @keyframes explosionFade { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(3); opacity: 0; } }
     .anim-explosion { animation: explosionFade 0.6s ease-out forwards; pointer-events: none; }
 
     @keyframes rainbowStopAnim {
@@ -65,10 +59,7 @@
     .rainbow-stop { animation: rainbowStopAnim 20s linear infinite; }
     .rainbow-stroke { stroke: url(#rainbowGrad) !important; }
     .rainbow-fill { fill: url(#rainbowGrad) !important; }
-    .rainbow-bg { background: linear-gradient(90deg, #E3002B, #FFC90E, #87D300, #00C1D5, #935CB9, #E3002B); background-size: 200% 100%; animation: rb 2s linear infinite; }
-    @keyframes rb { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
 
-    /* 按鍵翻轉特效 */
     .key-btn { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, box-shadow 0.2s; backface-visibility: hidden; }
     .key-flip { transform: rotateY(90deg) scale(0.85); opacity: 0.3; }
 
@@ -97,42 +88,21 @@
     const { useState, useEffect, useMemo, useRef } = React;
     const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc } = window.firebaseAPI;
 
-    // === Firebase 配置 ===
-    const providedConfig = {
-      apiKey: "AIzaSyCbw8MNh616_OIBfoyh2gIhQQhsgsN8rAc",
-      authDomain: "hashi-game-2c006.firebaseapp.com",
-      databaseURL: "https://hashi-game-2c006-default-rtdb.asia-southeast1.firebasedatabase.app",
-      projectId: "hashi-game-2c006",
-      storageBucket: "hashi-game-2c006.firebasestorage.app",
-      messagingSenderId: "732616383715",
-      appId: "1:732616383715:web:f31a0f7f24a08f3b78b9d6"
-    };
-
+    // Firebase 配置
+    const providedConfig = {apiKey: "AIzaSyCbw8MNh616_OIBfoyh2gIhQQhsgsN8rAc",authDomain: "hashi-game-2c006.firebaseapp.com",databaseURL: "https://hashi-game-2c006-default-rtdb.asia-southeast1.firebasedatabase.app",projectId: "hashi-game-2c006",storageBucket: "hashi-game-2c006.firebasestorage.app",messagingSenderId: "732616383715",appId: "1:732616383715:web:f31a0f7f24a08f3b78b9d6"};
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : providedConfig;
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
 
-    const COLORS = [
-      '#E3002B', '#F35B00', '#FFC90E', '#D7157A', '#E895C0', 
-      '#007A61', '#87D300', '#C4D600', '#8DD1BF', '#616130', 
-      '#00538A', '#008CC1', '#00C1D5', '#79C8ED', '#CDBB79', 
-      '#41136A', '#935CB9', '#BCA8D1', '#7A0026', '#BC7B70'  
-    ];
+    const COLORS = ['#E3002B','#F35B00','#FFC90E','#D7157A','#E895C0','#007A61','#87D300','#C4D600','#8DD1BF','#616130','#00538A','#008CC1','#00C1D5','#79C8ED','#CDBB79','#41136A','#935CB9','#BCA8D1','#7A0026','#BC7B70'];
+    const getAvailableColor = (currentPlayers) => { const usedColors = currentPlayers.map(p => p.color); const available = COLORS.filter(c => !usedColors.includes(c)); return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : COLORS[Math.floor(Math.random() * COLORS.length)]; };
 
-    const getAvailableColor = (currentPlayers) => {
-      const usedColors = currentPlayers.map(p => p.color);
-      const available = COLORS.filter(c => !usedColors.includes(c));
-      return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : COLORS[Math.floor(Math.random() * COLORS.length)];
-    };
-
-    // === 數獨設定 ===
     const SIZES = [
       { id: 4, name: "4x4 幼幼班", size: 4, boxW: 2, boxH: 2, chars: ['1','2','3','4'] },
       { id: 9, name: "9x9 標準", size: 9, boxW: 3, boxH: 3, chars: ['1','2','3','4','5','6','7','8','9'] },
       { id: 16, name: "16x16 史詩", size: 16, boxW: 4, boxH: 4, chars: ['0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'] }
     ];
-
     const DIFFICULTIES = [
       { id: 'easy', name: "🟢 簡單", targets: { 4: [9, 12], 9: [40, 45], 16: [140, 150] } },
       { id: 'medium', name: "🟡 普通", targets: { 4: [6, 7], 9: [27, 32], 16: [100, 120] } },
@@ -140,19 +110,9 @@
     ];
 
     const BASE_4 = [[0,1,2,3],[2,3,0,1],[1,0,3,2],[3,2,1,0]];
-    const BASE_9 = [
-        [0,1,2,3,4,5,6,7,8], [3,4,5,6,7,8,0,1,2], [6,7,8,0,1,2,3,4,5],
-        [1,2,3,4,5,6,7,8,0], [4,5,6,7,8,0,1,2,3], [7,8,0,1,2,3,4,5,6],
-        [2,3,4,5,6,7,8,0,1], [5,6,7,8,0,1,2,3,4], [8,0,1,2,3,4,5,6,7]
-    ];
-    const BASE_16 = [
-        [0,1,2,3, 4,5,6,7, 8,9,10,11, 12,13,14,15], [4,5,6,7, 8,9,10,11, 12,13,14,15, 0,1,2,3], [8,9,10,11, 12,13,14,15, 0,1,2,3, 4,5,6,7], [12,13,14,15, 0,1,2,3, 4,5,6,7, 8,9,10,11],
-        [1,2,3,0, 5,6,7,4, 9,10,11,8, 13,14,15,12], [5,6,7,4, 9,10,11,8, 13,14,15,12, 1,2,3,0], [9,10,11,8, 13,14,15,12, 1,2,3,0, 5,6,7,4], [13,14,15,12, 1,2,3,0, 5,6,7,4, 9,10,11,8],
-        [2,3,0,1, 6,7,4,5, 10,11,8,9, 14,15,12,13], [6,7,4,5, 10,11,8,9, 14,15,12,13, 2,3,0,1], [10,11,8,9, 14,15,12,13, 2,3,0,1, 6,7,4,5], [14,15,12,13, 2,3,0,1, 6,7,4,5, 10,11,8,9],
-        [3,0,1,2, 7,4,5,6, 11,8,9,10, 15,12,13,14], [7,4,5,6, 11,8,9,10, 15,12,13,14, 3,0,1,2], [11,8,9,10, 15,12,13,14, 3,0,1,2, 7,4,5,6], [15,12,13,14, 3,0,1,2, 7,4,5,6, 11,8,9,10]
-    ];
-
-    function transpose(matrix) { return matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex])); }
+    const BASE_9 = [[0,1,2,3,4,5,6,7,8],[3,4,5,6,7,8,0,1,2],[6,7,8,0,1,2,3,4,5],[1,2,3,4,5,6,7,8,0],[4,5,6,7,8,0,1,2,3],[7,8,0,1,2,3,4,5,6],[2,3,4,5,6,7,8,0,1],[5,6,7,8,0,1,2,3,4],[8,0,1,2,3,4,5,6,7]];
+    const BASE_16 = [[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],[4,5,6,7,8,9,10,11,12,13,14,15,0,1,2,3],[8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7],[12,13,14,15,0,1,2,3,4,5,6,7,8,9,10,11],[1,2,3,0,5,6,7,4,9,10,11,8,13,14,15,12],[5,6,7,4,9,10,11,8,13,14,15,12,1,2,3,0],[9,10,11,8,13,14,15,12,1,2,3,0,5,6,7,4],[13,14,15,12,1,2,3,0,5,6,7,4,9,10,11,8],[2,3,0,1,6,7,4,5,10,11,8,9,14,15,12,13],[6,7,4,5,10,11,8,9,14,15,12,13,2,3,0,1],[10,11,8,9,14,15,12,13,2,3,0,1,6,7,4,5],[14,15,12,13,2,3,0,1,6,7,4,5,10,11,8,9],[3,0,1,2,7,4,5,6,11,8,9,10,15,12,13,14],[7,4,5,6,11,8,9,10,15,12,13,14,3,0,1,2],[11,8,9,10,15,12,13,14,3,0,1,2,7,4,5,6],[15,12,13,14,3,0,1,2,7,4,5,6,11,8,9,10]];
+    const transpose = (matrix) => matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex]));
 
     function getSolutionGrid(puzzleCells, sizeDef) {
         const { size, boxW, boxH, chars } = sizeDef;
@@ -320,14 +280,17 @@
 
     function formatTime(secs) { return String(Math.floor(secs / 60)).padStart(2, '0') + ":" + String(secs % 60).padStart(2, '0'); }
 
-    function GameTimer({ startTime, endTime, isRunning }) {
+    function GameTimer({ startTime, endTime, isRunning, matchPhase }) {
         const [now, setNow] = useState(Date.now());
         useEffect(() => {
             if (!isRunning) return;
             setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 1000);
             return () => clearInterval(t);
         }, [isRunning, startTime]);
-        const secs = Math.max(0, Math.floor(((endTime || now) - startTime) / 1000));
+        let secs = 0;
+        if (matchPhase === 'playing' || matchPhase === 'finished') {
+            secs = Math.max(0, Math.floor(((endTime || now) - startTime) / 1000));
+        }
         return <span>⏱ {formatTime(secs)}</span>;
     }
 
@@ -338,7 +301,7 @@
       const playerIdRef = useRef(Math.random().toString(36).substring(2, 12));
       const myId = playerIdRef.current;
       const myNameRef = useRef("");
-      const myColorRef = useRef(COLORS[11]); // 預設藍色
+      const myColorRef = useRef(COLORS[11]); 
 
       const emptyLevelData = { sizeDef: SIZES[1], diffDef: DIFFICULTIES[1], cells: [] };
       const initialDataRef = useRef(emptyLevelData);
@@ -360,6 +323,10 @@
       const [winner, setWinner] = useState(null); 
       const isWinnerDeclaredRef = useRef(false);
 
+      const [matchPhase, setMatchPhase] = useState('playing'); // 'waiting', 'countdown', 'playing', 'finished'
+      const [countdownTarget, setCountdownTarget] = useState(null);
+      const [countdownNum, setCountdownNum] = useState(null);
+
       const [strokes, setStrokes] = useState([]);
       const [history, setHistory] = useState([]);
       const [isWon, setIsWon] = useState(false);
@@ -379,22 +346,16 @@
       const [drawSubMode, setDrawSubMode] = useState('pen');
       const [selectedChar, setSelectedChar] = useState(null); 
       
-      // === 炸彈與反擊系統相關狀態 ===
+      // 炸彈與反擊系統相關狀態
       const [padOrder, setPadOrder] = useState(SIZES[1].chars);
       const [flippingKeys, setFlippingKeys] = useState([]);
-      const scrambledCharsRef = useRef(new Set()); // 紀錄被打亂的數字，禁用智慧吸取
+      const scrambledCharsRef = useRef(new Set()); 
       
       const [bombs, setBombs] = useState([]);
       const bombsRef = useRef([]);
       const [explosions, setExplosions] = useState([]);
       const completedRegionsRef = useRef(new Set());
       const [nowTimer, setNowTimer] = useState(Date.now());
-
-      useEffect(() => {
-          if (bombs.length === 0) return;
-          const t = setInterval(() => setNowTimer(Date.now()), 200);
-          return () => clearInterval(t);
-      }, [bombs.length]);
 
       const modeIcons = ['🖋️', '✏️', '🖌️'];
       const modeTitles = ['填答模式', '草稿模式', '畫筆作記號'];
@@ -417,7 +378,7 @@
       const [stableMode, setStableMode] = useState(false); 
       const [titleClicks, setTitleClicks] = useState(0);
       
-      const [playersList, setPlayersList] = useState([{ id: myId, name: "單機玩家", isHost: true, color: COLORS[11] }]);
+      const [playersList, setPlayersList] = useState([{ id: myId, name: "單機玩家", isHost: true, color: COLORS[11], isReady: false }]);
       const [isConnecting, setIsConnecting] = useState(false);
 
       const [showOtherCursors, setShowOtherCursors] = useState(true);
@@ -437,10 +398,9 @@
       const unsubRef = useRef(null);
       const zoomContainerRef = useRef(null);
       const lastPinchDist = useRef(null);
-      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, winner: null, isAutoFilling: false });
+      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null });
       
       const playersListRef = useRef([]);
-      useEffect(() => { playersListRef.current = playersList; }, [playersList]);
 
       const zoomLevelRef = useRef(1);
       const zoomModeIdxRef = useRef(0);
@@ -448,8 +408,6 @@
       const drawingPathRef = useRef(null);
       const eraserRef = useRef(null);
       const lastEraseTimeRef = useRef(0);
-
-      const MAX_SAFE_DIMENSION = 8500;
 
       const cSizeDef = levelData.sizeDef;
       const CELL_SIZE = 60;
@@ -459,7 +417,50 @@
 
       const activeCells = isGhostRace ? localCells : cells;
 
-      // === 確保新局時清除幽靈與重置按鈕順序 ===
+      useEffect(() => { playersListRef.current = playersList; }, [playersList]);
+
+      useEffect(() => {
+          if (bombs.length === 0) return;
+          const t = setInterval(() => setNowTimer(Date.now()), 200);
+          return () => clearInterval(t);
+      }, [bombs.length]);
+
+      useEffect(() => {
+        if (matchPhase === 'countdown' && countdownTarget) {
+            const checkTime = () => {
+                const remaining = Math.ceil((countdownTarget - Date.now()) / 1000);
+                if (remaining > 0) {
+                    setCountdownNum(remaining);
+                } else {
+                    setCountdownNum(null);
+                    if (stateRef.current.matchPhase !== 'playing') {
+                        setMatchPhase('playing');
+                        setStartTime(countdownTarget);
+                        setMatchStartTime(countdownTarget);
+                        stateRef.current.matchPhase = 'playing';
+                        stateRef.current.startTime = countdownTarget;
+                    }
+                }
+            };
+            checkTime();
+            const interval = setInterval(checkTime, 100);
+            return () => clearInterval(interval);
+        } else {
+            setCountdownNum(null);
+        }
+      }, [matchPhase, countdownTarget]);
+
+      useEffect(() => {
+          if (!isHostRef.current && isMultiplayer) return;
+          if (matchPhase === 'waiting' && playersList.length > 0) {
+              const allReady = playersList.every(p => p.isReady);
+              if (allReady) {
+                  const target = Date.now() + 5000;
+                  syncState({ matchPhase: 'countdown', countdownTarget: target }, true);
+              }
+          }
+      }, [playersList, matchPhase, isMultiplayer]);
+
       useEffect(() => {
           setGhostHints({});
           bombsRef.current = [];
@@ -479,11 +480,10 @@
 
       useEffect(() => { if (selectedChar && completedChars.has(selectedChar)) setSelectedChar(null); }, [completedChars, selectedChar]);
 
-      // === 鍵盤支援 (套用洗牌邏輯) ===
       useEffect(() => {
           if (screen !== 'game') return;
           const handleKeyDown = (e) => {
-              if (interactionMode >= 2 || isAutoFillingRef.current) return;
+              if (interactionMode >= 2 || isAutoFillingRef.current || matchPhase !== 'playing') return;
               const key = e.key.toUpperCase();
               const originalIndex = cSizeDef.chars.indexOf(key);
               if (originalIndex !== -1) {
@@ -493,7 +493,7 @@
           };
           window.addEventListener('keydown', handleKeyDown);
           return () => window.removeEventListener('keydown', handleKeyDown);
-      }, [screen, cSizeDef.chars, padOrder, interactionMode, completedChars]);
+      }, [screen, cSizeDef.chars, padOrder, interactionMode, completedChars, matchPhase]);
 
       const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[11]; }; 
       
@@ -515,7 +515,7 @@
         initAuth(); onAuthStateChanged(auth, function(u) { if(u) setUser(u); });
       }, []);
 
-      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner]);
+      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget]);
 
       const conflictCellIds = useMemo(() => {
         const conflicts = new Set();
@@ -543,7 +543,6 @@
         return conflicts;
       }, [activeCells, cSizeDef]);
 
-      // === 檢測區域完成並發送炸彈訊號 (嚴格比對答案，排除全提示格) ===
       useEffect(() => {
           if (!isGhostRace || isGenerating || !localCells.length) return;
           const solution = solutionGridRef.current;
@@ -594,7 +593,60 @@
           }
       }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars]);
 
-      // === 系統強制解開格子邏輯 ===
+      useEffect(() => {
+          if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing') return;
+          const isFull = activeCells.every(c => c.value !== null);
+          const hasNoConflicts = conflictCellIds.size === 0;
+          
+          if (isFull && hasNoConflicts) {
+              if (isGhostRace) {
+                  if (!isWinnerDeclaredRef.current) {
+                      isWinnerDeclaredRef.current = true;
+                      const finishTime = Date.now(); setEndTime(finishTime); setMatchPhase('finished');
+                      const me = playersList.find(p => p.id === myId);
+                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)) };
+                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
+                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
+                  }
+              } else {
+                  if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); setMatchPhase('finished'); }
+              }
+          } else {
+              if (isWon) { setIsWon(false); setEndTime(null); setMatchPhase('playing'); }
+          }
+      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId, matchPhase]);
+
+      // 觸控縮放
+      useEffect(function() {
+        if (screen !== 'game') return; const el = zoomContainerRef.current; if (!el) return; let touchStartY = null;
+        const handleTouchStart = (e) => { if (e.touches.length === 1) touchStartY = e.touches[0].clientY; };
+        const handleTouchMove = (e) => {
+          if (interactionMode >= 2) return; 
+          if (e.touches.length === 2) {
+            e.preventDefault(); const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+            if (lastPinchDist.current) {
+              const delta = dist - lastPinchDist.current; let newZoom = Math.min(Math.max(zoomLevelRef.current + delta * 0.005, 0.4), 3.5);
+              if (svgW * newZoom > MAX_SAFE_DIMENSION || svgH * newZoom > MAX_SAFE_DIMENSION) newZoom = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH);
+              zoomLevelRef.current = newZoom; if (svgRef.current) { svgRef.current.style.width = `${svgW * newZoom}px`; svgRef.current.style.height = `${svgH * newZoom}px`; }
+              if (zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; }
+            }
+            lastPinchDist.current = dist;
+          } else if (e.touches.length === 1 && touchStartY !== null) {
+            if (Math.abs(e.touches[0].clientY - touchStartY) > 30 && !isHeaderCollapsed) setIsHeaderCollapsed(true);
+          }
+        };
+        const handleTouchEnd = () => { lastPinchDist.current = null; touchStartY = null; if (zoomLevel !== zoomLevelRef.current) setZoomLevel(zoomLevelRef.current); };
+        const handleWheel = (e) => { if (interactionMode >= 2) return; if (Math.abs(e.deltaY) > 10 && !isHeaderCollapsed) setIsHeaderCollapsed(true); if (e.ctrlKey && zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; } };
+        el.addEventListener('touchstart', handleTouchStart, { passive: true }); el.addEventListener('touchmove', handleTouchMove, { passive: false }); el.addEventListener('touchend', handleTouchEnd); el.addEventListener('touchcancel', handleTouchEnd); el.addEventListener('wheel', handleWheel, { passive: true });
+        return () => { el.removeEventListener('touchstart', handleTouchStart); el.removeEventListener('touchmove', handleTouchMove); el.removeEventListener('touchend', handleTouchEnd); el.removeEventListener('touchcancel', handleTouchEnd); el.removeEventListener('wheel', handleWheel); };
+      }, [screen, isHeaderCollapsed, interactionMode, svgW, svgH, zoomLevel]);
+
+      useEffect(function() {
+        if (ripples.length === 0) return;
+        const timer = setTimeout(() => { const now = Date.now(); setRipples(prev => prev.filter(r => now - r.timestamp < 1000)); }, 1000);
+        return () => clearTimeout(timer);
+      }, [ripples]);
+
       const revealSystemCellRef = useRef();
       revealSystemCellRef.current = (cellId) => {
           setLocalCells(prev => {
@@ -629,7 +681,6 @@
           else if (connRef.current) connRef.current.send(msg);
       };
 
-      // === 炸彈處理機制 ===
       const processBombTimeoutRef = useRef();
       processBombTimeoutRef.current = (bombId) => {
           const currentBombs = bombsRef.current;
@@ -664,10 +715,7 @@
               const bId = Math.random().toString(36).substring(2, 10);
               const newBomb = { id: bId, cellId: t.id, attackerUid, clicks: 0, expireTime: Date.now() + 5000 };
               bombsRef.current.push(newBomb);
-              
-              setTimeout(() => {
-                  if (processBombTimeoutRef.current) processBombTimeoutRef.current(bId);
-              }, 5000);
+              setTimeout(() => { if (processBombTimeoutRef.current) processBombTimeoutRef.current(bId); }, 5000);
           });
           setBombs([...bombsRef.current]);
       };
@@ -709,54 +757,27 @@
                       const next = [...currentOrder];
                       const i1 = next.indexOf(c1);
                       const i2 = next.indexOf(c2);
-                      if(i1 !== -1 && i2 !== -1) {
-                          [next[i1], next[i2]] = [next[i2], next[i1]];
-                      }
+                      if(i1 !== -1 && i2 !== -1) { [next[i1], next[i2]] = [next[i2], next[i1]]; }
                       return next;
                   });
                   scrambledCharsRef.current.add(c1);
                   scrambledCharsRef.current.add(c2);
                   
-                  setTimeout(() => {
-                      setFlippingKeys(fk => fk.filter(k => k !== c1 && k !== c2));
-                  }, 50);
+                  setTimeout(() => { setFlippingKeys(fk => fk.filter(k => k !== c1 && k !== c2)); }, 50);
               }, 250);
               
               return prev; 
           });
       };
 
-      // 幽靈信號與勝利監聽
-      useEffect(() => {
-          if (!activeCells || activeCells.length === 0 || isGenerating || winner) return;
-          const isFull = activeCells.every(c => c.value !== null);
-          const hasNoConflicts = conflictCellIds.size === 0;
-          
-          if (isFull && hasNoConflicts) {
-              if (isGhostRace) {
-                  if (!isWinnerDeclaredRef.current) {
-                      isWinnerDeclaredRef.current = true;
-                      const finishTime = Date.now(); setEndTime(finishTime);
-                      const me = playersList.find(p => p.id === myId);
-                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)) };
-                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
-                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
-                  }
-              } else {
-                  if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); }
-              }
-          } else {
-              if (isWon) { setIsWon(false); setEndTime(null); }
-          }
-      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId]);
-
-      // 通用狀態同步 (修復幽靈賽廣播洩漏問題)
       const syncState = (partial, shouldBroadcast = true) => {
           if (partial.cells !== undefined) setCells(partial.cells);
           if (partial.localCells !== undefined) setLocalCells(partial.localCells);
           if (partial.levelData !== undefined) setLevelData(partial.levelData);
           if (partial.startTime !== undefined) { setStartTime(partial.startTime); setMatchStartTime(partial.startTime); }
-          
+          if (partial.matchPhase !== undefined) setMatchPhase(partial.matchPhase);
+          if (partial.countdownTarget !== undefined) setCountdownTarget(partial.countdownTarget);
+
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
               if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); }
@@ -793,7 +814,9 @@
                   solutionGrid: updatedState.solutionGrid ? JSON.stringify(updatedState.solutionGrid) : null,
                   sizeId: updatedState.sizeId,
                   diffId: updatedState.diffId,
-                  strokes: updatedState.strokes
+                  strokes: updatedState.strokes,
+                  matchPhase: updatedState.matchPhase,
+                  countdownTarget: updatedState.countdownTarget
               };
 
               if (!updatedState.isGhostRace) {
@@ -813,6 +836,34 @@
                   else if (connRef.current) connRef.current.send({ type: 'SYNC', data: broadcastData }); 
               }
           }
+      };
+
+      const handleReady = () => {
+          if (engineRef.current === 'firebase' && roomRef.current) {
+              const nList = playersListRef.current.map(p => p.id === myId ? { ...p, isReady: true } : p);
+              setPlayersList(nList);
+              updateDoc(roomRef.current, { players: nList }).catch(e => {});
+          } else if (engineRef.current === 'peerjs') {
+              if (isHostRef.current) {
+                  const nList = playersListRef.current.map(p => p.id === myId ? { ...p, isReady: true } : p);
+                  setPlayersList(nList);
+                  connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
+              } else if (connRef.current) {
+                  connRef.current.send({ type: 'REQ_READY', targetId: myId });
+              }
+          } else {
+              setPlayersList(prev => prev.map(p => p.id === myId ? { ...p, isReady: true } : p));
+          }
+      };
+
+      const requestRegenerate = () => {
+          if (isMultiplayer && !isHostRef.current && engineRef.current === 'peerjs') {
+              if (connRef.current) connRef.current.send({ type: 'REQ_PLAY_AGAIN' });
+              showToast("已向房主發送重開局請求！");
+              return;
+          }
+          setIsWon(false); setIsClosingModal(true); 
+          setTimeout(() => { setIsClosingModal(false); handleRegenerateRandom(); }, 300);
       };
 
       const showToast = (m) => { setToastMsg(m); setTimeout(() => setToastMsg(""), 4000); };
@@ -847,6 +898,7 @@
       };
 
       const handlePointerDown = (e) => {
+        if (matchPhase !== 'playing') return;
         const pt = getSvgCoords(e.clientX, e.clientY); if (!pt) return;
         if (interactionMode === 2) {
             e.target.setPointerCapture(e.pointerId);
@@ -861,6 +913,7 @@
       };
 
       const handlePointerMove = (e) => {
+        if (matchPhase !== 'playing') return;
         const pt = getSvgCoords(e.clientX, e.clientY);
         if (interactionMode === 2) {
             if (drawSubMode === 'eraser') { if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; } if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); } } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) { currentPathDataRef.current += ` L ${pt.x} ${pt.y}`; if (drawingPathRef.current) drawingPathRef.current.setAttribute('d', currentPathDataRef.current); }
@@ -872,6 +925,7 @@
       };
 
       const handlePointerUp = (e) => {
+        if (matchPhase !== 'playing') return;
         if (interactionMode === 2) {
             if (drawSubMode === 'pen' && isDrawingRef.current) { isDrawingRef.current = false; if (currentPathDataRef.current) { syncState({ strokes: [...stateRef.current.strokes, { id: Date.now() + '-' + myId, uid: myId, path: currentPathDataRef.current }] }); currentPathDataRef.current = ""; if (drawingPathRef.current) drawingPathRef.current.style.display = 'none'; } }
             if (e.type === 'pointerleave' || e.type === 'pointercancel' || e.pointerType === 'touch') if (eraserRef.current) eraserRef.current.style.display = 'none';
@@ -1003,7 +1057,7 @@
 
       const clickTracker = useRef({ char: null, count: 0, time: 0 });
       const onNumClick = (e, c) => {
-          e.preventDefault(); if (isAutoFillingRef.current || winner) return; 
+          e.preventDefault(); if (isAutoFillingRef.current || winner || matchPhase !== 'playing') return; 
           const now = Date.now(); const tracker = clickTracker.current;
           if (tracker.char === c && now - tracker.time < 400) { tracker.count += 1; } else { tracker.char = c; tracker.count = 1; }
           tracker.time = now; const isCompleted = completedChars.has(c);
@@ -1031,12 +1085,12 @@
       };
 
       const modeLongPressTimer = useRef(null);
-      const handleModePointerDown = (e) => { if (isAutoFillingRef.current) return; if (interactionMode === 1) { modeLongPressTimer.current = setTimeout(() => { handleClearAllDrafts(); modeLongPressTimer.current = null; if (navigator.vibrate) navigator.vibrate(50); }, 600); } };
-      const handleModePointerUp = (e) => { if (isAutoFillingRef.current) return; if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; toggleInteractionMode(); } else if (interactionMode !== 1) { toggleInteractionMode(); } };
+      const handleModePointerDown = (e) => { if (isAutoFillingRef.current || matchPhase !== 'playing') return; if (interactionMode === 1) { modeLongPressTimer.current = setTimeout(() => { handleClearAllDrafts(); modeLongPressTimer.current = null; if (navigator.vibrate) navigator.vibrate(50); }, 600); } };
+      const handleModePointerUp = (e) => { if (isAutoFillingRef.current || matchPhase !== 'playing') return; if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; toggleInteractionMode(); } else if (interactionMode !== 1) { toggleInteractionMode(); } };
       const handleModePointerLeave = () => { if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; } };
 
       const toggleInteractionMode = () => {
-        if (isAutoFillingRef.current) return;
+        if (isAutoFillingRef.current || matchPhase !== 'playing') return;
         const nextMode = (interactionMode + 1) % (engineRef.current === 'peerjs' ? 3 : 2);
         if(isGhostRace && nextMode === 2) return; 
         setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
@@ -1112,7 +1166,7 @@
       };
 
       const handleCellClick = (cellId) => {
-        if (isWon || interactionMode >= 2 || winner) return;
+        if (isWon || interactionMode >= 2 || winner || matchPhase !== 'playing') return;
         const cur = isGhostRace ? localCells : cells;
         const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
@@ -1177,7 +1231,7 @@
       };
 
       const handleReset = () => {
-        if (isAutoFillingRef.current) return;
+        if (isAutoFillingRef.current || matchPhase !== 'playing') return;
         const currentActive = isGhostRace ? localCells : cells;
         const resetCells = currentActive.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null, isSystemRevealed: false }));
         syncState({ cells: resetCells, localCells: resetCells, strokes: [], startTime: Date.now() }, !isGhostRace);
@@ -1189,7 +1243,21 @@
         if (isAutoFillingRef.current) return;
         setIsGenerating(true); setWinner(null); isWinnerDeclaredRef.current = false; setGhostHints({}); setPadOrder(SIZES.find(s => s.id === sId).chars); scrambledCharsRef.current.clear();
         const isGR = ghostMode !== undefined ? ghostMode : isGhostRace;
-        syncState({ isGenerating: true, isGhostRace: isGR, winner: null }, true);
+        
+        syncState({ 
+            isGenerating: true, 
+            isGhostRace: isGR, 
+            winner: null, 
+            matchPhase: isGR ? 'waiting' : 'playing', 
+            countdownTarget: null 
+        }, true);
+        
+        setPlayersList(prev => {
+            const nList = prev.map(p => ({ ...p, isReady: false }));
+            if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { players: nList }).catch(e=>e);
+            else if (engineRef.current === 'peerjs' && isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
+            return nList;
+        });
 
         setTimeout(() => {
             purgeGhostPlayers();
@@ -1207,13 +1275,12 @@
       const handleDiffChange = (e) => { generateAndSync(sizeId, e.target.value); };
       const handleRegenerateRandom = () => { generateAndSync(sizeId, diffId); };
       const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
-      const triggerRegenerate = () => { setIsWon(false); setIsClosingModal(true); setTimeout(() => { setIsClosingModal(false); handleRegenerateRandom(); }, 300); };
-
+      
       const switchToOffline = () => {
         if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
         setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false; setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null; setCursors({}); setRipples([]); setInteractionMode(0);
         setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); setPadOrder(cSizeDef.chars); scrambledCharsRef.current.clear();
-        setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11] }]);
+        setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11], isReady: false }]);
       };
 
       const startSinglePlayer = () => { switchToOffline(); setScreen('game'); setIsHeaderCollapsed(false); generateAndSync(sizeId, diffId, false); };
@@ -1224,7 +1291,7 @@
         const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
         let solution = null; if (isGhostRace) solution = getSolutionGrid(initialLevelData.cells, initialLevelData.sizeDef);
         const initLocalCells = JSON.parse(JSON.stringify(initialLevelData.cells));
-        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution }, false);
+        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution, matchPhase: isGhostRace ? 'waiting' : 'playing', countdownTarget: null }, false);
         setIsGenerating(false); setPadOrder(initialLevelData.sizeDef.chars); scrambledCharsRef.current.clear(); bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear();
         const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
         if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; await setupFirebase(finalId, pName, true); } 
@@ -1247,24 +1314,25 @@
             setIsHost(true); isHostRef.current = true;
             const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
             if (safeGameState.solutionGrid) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
-            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([])}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
+            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: false}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
           } else {
             const snap = await Promise.race([getDoc(rDoc), timeout(6000)]);
             if (!snap.exists()) { setIsConnecting(false); switchToOffline(); return showToast("⚠️ 找不到該對局大廳，請確認代碼"); }
             setIsHost(false); isHostRef.current = false;
             let pList = snap.data().players || []; const meIndex = pList.findIndex(p => p.id === myId);
-            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList) }); else pList[meIndex].name = pName;
+            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: false }); else pList[meIndex].name = pName;
             await Promise.race([updateDoc(rDoc, { players: pList, updatedAt: Date.now() }), timeout(6000)]);
           }
           setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false);
           unsubRef.current = onSnapshot(rDoc, function(docSnap) {
             if (!docSnap.exists()) { showToast("⚠️ 房主已斷線，切換為單機模式"); switchToOffline(); return; }
             const data = docSnap.data(); const serverPlayers = data.players || []; setPlayersList(serverPlayers);
-            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current }] }).catch(e => {});
+            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current, isReady: false }] }).catch(e => {});
             if (data.gameState) {
               const gs = data.gameState;
               if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
-              if (gs.startTime) setStartTime(gs.startTime); if (gs.strokes !== undefined) setStrokes(gs.strokes);
+              if (gs.startTime) { setStartTime(gs.startTime); setMatchStartTime(gs.startTime); } if (gs.strokes !== undefined) setStrokes(gs.strokes);
+              if (gs.matchPhase !== undefined) setMatchPhase(gs.matchPhase); if (gs.countdownTarget !== undefined) setCountdownTarget(gs.countdownTarget);
               if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
               if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar); if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace); if (gs.winner !== undefined) setWinner(gs.winner);
@@ -1280,12 +1348,12 @@
         if (isCreating) {
             const p = new Peer('yyh-tgsh-' + rId + '-host'); peerRef.current = p;
             p.on('open', function() {
-              setIsHost(true); isHostRef.current = true; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]) }]);
+              setIsHost(true); isHostRef.current = true; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: false }]);
               p.on('connection', function(c) {
                 connsRef.current.push(c);
                 c.on('data', function(m) {
                   if (m.type === 'JOIN') {
-                      c.uid = m.uid; setPlayersList(prev => { let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev) }]; connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: { ...stateRef.current, solutionGrid: solutionGridRef.current }, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
+                      c.uid = m.uid; setPlayersList(prev => { let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev), isReady: false }]; connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: { ...stateRef.current, solutionGrid: solutionGridRef.current }, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
                   } else if (m.type === 'LEAVE') { setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
                   } else if (m.type === 'SYNC') { syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
                   } else if (m.type === 'GHOST_SOLVED') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
@@ -1299,6 +1367,10 @@
                   } else if (m.type === 'COUNTER_ATTACK') {
                       if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); }
                       connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
+                  } else if (m.type === 'REQ_READY') {
+                      setPlayersList(prev => { const nList = prev.map(p => p.id === m.targetId ? { ...p, isReady: true } : p); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+                  } else if (m.type === 'REQ_PLAY_AGAIN') {
+                      handleRegenerateRandom();
                   }
                 });
                 c.on('close', function() { connsRef.current = connsRef.current.filter(conn => conn.peer !== c.peer); if (c.uid) setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== c.uid); connsRef.current.forEach(conn => { if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; }); });
@@ -1363,7 +1435,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.4.2)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5)</div>
           </div>
         );
       }
@@ -1406,6 +1478,43 @@
 
       return (
         <div className="h-screen w-screen p-1 md:p-4 flex flex-col items-center font-sans relative" style={{ backgroundColor: '#fdf5e6', backgroundImage: 'radial-gradient(#d3c5ab 2px, transparent 2px)', backgroundSize: '12px 12px' }}>
+          
+          {/* === 幽靈賽：等待全員準備 UI === */}
+          {matchPhase === 'waiting' && !isGenerating && (
+              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm pointer-events-auto animate-fadeIn p-4">
+                  <div className="bg-white rounded-2xl p-8 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] text-center min-w-[320px] max-w-md w-full">
+                      <h2 className="text-3xl font-black text-slate-800 mb-6">等待所有人同意</h2>
+                      <div className="flex flex-col gap-3 mb-8">
+                          {playersList.map(p => (
+                              <div key={p.id} className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border-2 border-slate-300">
+                                  <span className="font-bold text-slate-700 text-lg flex items-center gap-2">
+                                      <span className="w-4 h-4 rounded-full inline-block border border-slate-400" style={{backgroundColor: p.color === 'rainbow' ? '#ffcc00' : p.color}}></span>
+                                      {p.name} {p.id === myId && '(你)'}
+                                  </span>
+                                  <span className="font-black text-xl">
+                                      {p.isReady ? <span className="text-emerald-500">✔ 已同意</span> : <span className="text-slate-400">...</span>}
+                                  </span>
+                              </div>
+                          ))}
+                      </div>
+                      {(playersList.find(p => p.id === myId) || {}).isReady ? (
+                          <div className="py-4 bg-slate-200 rounded-xl font-black text-xl text-slate-500 border-4 border-slate-300">等待其他玩家...</div>
+                      ) : (
+                          <button onClick={handleReady} className="w-full py-4 bg-[#ffcc00] text-[#2d2a26] rounded-xl font-black text-2xl border-[4px] border-[#2d2a26] shadow-[4px_4px_0px_#1e293b] hover:translate-y-[2px] hover:shadow-none transition-all">同意開始</button>
+                      )}
+                  </div>
+              </div>
+          )}
+
+          {/* === 幽靈賽：5秒倒數 UI === */}
+          {matchPhase === 'countdown' && countdownNum !== null && !isGenerating && (
+              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/50 backdrop-blur-md pointer-events-auto">
+                  <div className="text-[12rem] font-black text-red-500 drop-shadow-[0_0_30px_rgba(255,0,0,0.8)] animate-pulse" style={{ textShadow: '6px 6px 0 #fff, -6px -6px 0 #fff, 6px -6px 0 #fff, -6px 6px 0 #fff' }}>
+                      {countdownNum}
+                  </div>
+              </div>
+          )}
+          
           <div className="w-full max-w-[1200px] bg-[#fffaf0] rounded-xl border-4 border-slate-800 shadow-[8px_8px_0px_rgba(30,41,59,1)] flex flex-col h-full relative z-10 overflow-hidden">
             
             <div className={`bg-[#ffcc00] border-b-4 border-slate-800 shrink-0 z-50 relative transition-all duration-300 ease-in-out px-2 md:px-4 py-2 flex flex-col gap-2`}>
@@ -1413,7 +1522,7 @@
                   <div className="flex items-center gap-2 flex-wrap flex-1">
                      <h1 className="font-black tracking-tight uppercase text-lg md:text-2xl text-[#2d2a26] flex items-center gap-1">🔢<span className="hidden sm:inline">數獨</span></h1>
                      <div className="flex items-center gap-1 bg-[#2d2a26] text-white px-2 py-1 rounded-md font-mono font-bold shadow-[2px_2px_0px_rgba(0,0,0,0.4)] text-xs md:text-sm whitespace-nowrap">
-                        <GameTimer startTime={startTime} endTime={endTime || (winner?matchStartTime:null)} isRunning={!isWon && !winner && screen === 'game'} />
+                        <GameTimer startTime={startTime} endTime={endTime || (winner?matchStartTime:null)} isRunning={!isWon && !winner && screen === 'game' && matchPhase === 'playing'} matchPhase={matchPhase} />
                      </div>
                      {isMultiplayer && ( 
                          <div className="flex items-center gap-1">
@@ -1429,7 +1538,7 @@
                          </div>
                      )}
                      {/* 團隊與個人進度條 (常駐顯示) */}
-                     {isMultiplayer && startTime && !winner && !isWon && !isGenerating && (
+                     {isMultiplayer && startTime && !winner && !isWon && !isGenerating && matchPhase === 'playing' && (
                          <div className="flex-1 max-w-[300px] flex items-center gap-2 bg-white px-2 py-1 rounded border-2 border-slate-800 shadow-[2px_2px_0px_rgba(0,0,0,0.1)] ml-2">
                             <span className="text-xs font-black text-slate-500 whitespace-nowrap">{isGhostRace ? '我的進度' : '團隊進度'}</span>
                             <div className="flex-1 h-3 bg-slate-200 rounded-full border border-slate-400 overflow-hidden flex">
@@ -1473,7 +1582,7 @@
                   </div>
                   
                   <div className="flex gap-1 md:gap-2 flex-wrap items-center ml-auto">
-                     <button onClick={handleRegenerateRandom} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="新題">🎲<span className="hidden sm:inline">新題</span></button>
+                     <button onClick={requestRegenerate} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="新題">🎲<span className="hidden sm:inline">新題</span></button>
                      {!isMultiplayer && ( <button onClick={handleUndo} disabled={history.length === 0 || isWon} className="px-2 py-1 md:px-3 md:py-1.5 bg-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] disabled:opacity-50 disabled:shadow-none active:translate-y-1 active:shadow-none transition-all flex items-center gap-1 text-[#2d2a26]" title="復原">↩️<span className="hidden sm:inline">復原</span></button> )}
                      <button onClick={handleReset} className="px-2 py-1 md:px-3 md:py-1.5 bg-red-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="重置">🔄<span className="hidden sm:inline">重置</span></button>
                      <button onClick={() => setShowSaveModal(true)} className="px-2 py-1 md:px-3 md:py-1.5 bg-blue-500 text-white border-2 border-[#2d2a26] rounded-md font-bold text-xs md:text-sm shadow-[2px_2px_0px_#2d2a26] active:translate-y-1 active:shadow-none transition-all flex items-center gap-1" title="存檔/讀檔">💾<span className="hidden sm:inline">存檔</span></button>
@@ -1797,9 +1906,7 @@
                         </div>
                     )}
                     <div className="flex justify-center gap-3 flex-wrap">
-                      {(isHostRef.current || !isMultiplayer) && ( 
-                          <button onClick={triggerRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
-                      )}
+                        <button onClick={requestRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
                     </div>
                   </div>
                 </div>

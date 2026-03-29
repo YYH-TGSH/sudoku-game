@@ -47,8 +47,9 @@
     @keyframes ghostPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.9; } }
     .ghost-highlight { animation: ghostPulse 2s ease-in-out infinite; }
 
-    @keyframes bombWiggle { 0%, 100% { transform: rotate(-5deg) scale(1); } 50% { transform: rotate(5deg) scale(1.15); filter: drop-shadow(0 0 5px rgba(255,0,0,0.4)); } }
-    .anim-bomb { animation: bombWiggle 0.4s ease-in-out infinite; cursor: pointer; pointer-events: auto; }
+    /* 禮物與開啟特效 */
+    @keyframes giftWiggle { 0%, 100% { transform: rotate(-5deg) scale(1); } 50% { transform: rotate(5deg) scale(1.15); filter: drop-shadow(0 0 5px rgba(255,215,0,0.8)); } }
+    .anim-gift { animation: giftWiggle 0.4s ease-in-out infinite; cursor: pointer; pointer-events: auto; }
     
     @keyframes explosionFade { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(3); opacity: 0; } }
     .anim-explosion { animation: explosionFade 0.6s ease-out forwards; pointer-events: none; }
@@ -346,13 +347,13 @@
       const [drawSubMode, setDrawSubMode] = useState('pen');
       const [selectedChar, setSelectedChar] = useState(null); 
       
-      // 炸彈與反擊系統相關狀態
+      // 禮物與反擊系統相關狀態
       const [padOrder, setPadOrder] = useState(SIZES[1].chars);
       const [flippingKeys, setFlippingKeys] = useState([]);
       const scrambledCharsRef = useRef(new Set()); 
       
-      const [bombs, setBombs] = useState([]);
-      const bombsRef = useRef([]);
+      const [gifts, setGifts] = useState([]);
+      const giftsRef = useRef([]);
       const [explosions, setExplosions] = useState([]);
       const completedRegionsRef = useRef(new Set());
       const [nowTimer, setNowTimer] = useState(Date.now());
@@ -420,10 +421,10 @@
       useEffect(() => { playersListRef.current = playersList; }, [playersList]);
 
       useEffect(() => {
-          if (bombs.length === 0) return;
+          if (gifts.length === 0) return;
           const t = setInterval(() => setNowTimer(Date.now()), 200);
           return () => clearInterval(t);
-      }, [bombs.length]);
+      }, [gifts.length]);
 
       useEffect(() => {
         if (matchPhase === 'countdown' && countdownTarget) {
@@ -463,8 +464,8 @@
 
       useEffect(() => {
           setGhostHints({});
-          bombsRef.current = [];
-          setBombs([]);
+          giftsRef.current = [];
+          setGifts([]);
           completedRegionsRef.current.clear();
           scrambledCharsRef.current.clear();
           setPadOrder(cSizeDef.chars);
@@ -587,65 +588,11 @@
           });
 
           if (newComps > 0) {
-              const msg = { type: 'REGION_COMPLETE', uid: myId, count: newComps * 2 };
+              const msg = { type: 'REGION_COMPLETE', uid: myId, count: newComps };
               if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
               else if (connRef.current) connRef.current.send(msg);
           }
       }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars]);
-
-      useEffect(() => {
-          if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing') return;
-          const isFull = activeCells.every(c => c.value !== null);
-          const hasNoConflicts = conflictCellIds.size === 0;
-          
-          if (isFull && hasNoConflicts) {
-              if (isGhostRace) {
-                  if (!isWinnerDeclaredRef.current) {
-                      isWinnerDeclaredRef.current = true;
-                      const finishTime = Date.now(); setEndTime(finishTime); setMatchPhase('finished');
-                      const me = playersList.find(p => p.id === myId);
-                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)) };
-                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
-                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
-                  }
-              } else {
-                  if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); setMatchPhase('finished'); }
-              }
-          } else {
-              if (isWon) { setIsWon(false); setEndTime(null); setMatchPhase('playing'); }
-          }
-      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId, matchPhase]);
-
-      // 觸控縮放
-      useEffect(function() {
-        if (screen !== 'game') return; const el = zoomContainerRef.current; if (!el) return; let touchStartY = null;
-        const handleTouchStart = (e) => { if (e.touches.length === 1) touchStartY = e.touches[0].clientY; };
-        const handleTouchMove = (e) => {
-          if (interactionMode >= 2) return; 
-          if (e.touches.length === 2) {
-            e.preventDefault(); const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            if (lastPinchDist.current) {
-              const delta = dist - lastPinchDist.current; let newZoom = Math.min(Math.max(zoomLevelRef.current + delta * 0.005, 0.4), 3.5);
-              if (svgW * newZoom > MAX_SAFE_DIMENSION || svgH * newZoom > MAX_SAFE_DIMENSION) newZoom = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH);
-              zoomLevelRef.current = newZoom; if (svgRef.current) { svgRef.current.style.width = `${svgW * newZoom}px`; svgRef.current.style.height = `${svgH * newZoom}px`; }
-              if (zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; }
-            }
-            lastPinchDist.current = dist;
-          } else if (e.touches.length === 1 && touchStartY !== null) {
-            if (Math.abs(e.touches[0].clientY - touchStartY) > 30 && !isHeaderCollapsed) setIsHeaderCollapsed(true);
-          }
-        };
-        const handleTouchEnd = () => { lastPinchDist.current = null; touchStartY = null; if (zoomLevel !== zoomLevelRef.current) setZoomLevel(zoomLevelRef.current); };
-        const handleWheel = (e) => { if (interactionMode >= 2) return; if (Math.abs(e.deltaY) > 10 && !isHeaderCollapsed) setIsHeaderCollapsed(true); if (e.ctrlKey && zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; } };
-        el.addEventListener('touchstart', handleTouchStart, { passive: true }); el.addEventListener('touchmove', handleTouchMove, { passive: false }); el.addEventListener('touchend', handleTouchEnd); el.addEventListener('touchcancel', handleTouchEnd); el.addEventListener('wheel', handleWheel, { passive: true });
-        return () => { el.removeEventListener('touchstart', handleTouchStart); el.removeEventListener('touchmove', handleTouchMove); el.removeEventListener('touchend', handleTouchEnd); el.removeEventListener('touchcancel', handleTouchEnd); el.removeEventListener('wheel', handleWheel); };
-      }, [screen, isHeaderCollapsed, interactionMode, svgW, svgH, zoomLevel]);
-
-      useEffect(function() {
-        if (ripples.length === 0) return;
-        const timer = setTimeout(() => { const now = Date.now(); setRipples(prev => prev.filter(r => now - r.timestamp < 1000)); }, 1000);
-        return () => clearTimeout(timer);
-      }, [ripples]);
 
       const revealSystemCellRef = useRef();
       revealSystemCellRef.current = (cellId) => {
@@ -681,28 +628,28 @@
           else if (connRef.current) connRef.current.send(msg);
       };
 
-      const processBombTimeoutRef = useRef();
-      processBombTimeoutRef.current = (bombId) => {
-          const currentBombs = bombsRef.current;
-          if (currentBombs.some(b => b.id === bombId)) {
-              bombsRef.current = currentBombs.filter(b => b.id !== bombId);
-              setBombs([...bombsRef.current]);
+      const processGiftTimeoutRef = useRef();
+      processGiftTimeoutRef.current = (giftId) => {
+          const currentGifts = giftsRef.current;
+          if (currentGifts.some(g => g.id === giftId)) {
+              giftsRef.current = currentGifts.filter(g => g.id !== giftId);
+              setGifts([...giftsRef.current]);
               
-              const targetBomb = currentBombs.find(b => b.id === bombId);
-              if (targetBomb) {
-                  setExplosions(prev => [...prev, { id: Math.random(), cellId: targetBomb.cellId }]);
+              const targetGift = currentGifts.find(g => g.id === giftId);
+              if (targetGift) {
+                  setExplosions(prev => [...prev, { id: Math.random(), cellId: targetGift.cellId }]);
                   setTimeout(() => setExplosions(prev => prev.slice(1)), 1000);
-                  revealSystemCellRef.current(targetBomb.cellId);
+                  revealSystemCellRef.current(targetGift.cellId);
               }
           }
       };
 
-      const spawnBombsRef = useRef();
-      spawnBombsRef.current = (attackerUid, count) => {
+      const spawnGiftsRef = useRef();
+      spawnGiftsRef.current = (attackerUid, count) => {
           const cells = stateRef.current.localCells; 
-          const bombCellIds = new Set(bombsRef.current.map(b => b.cellId));
+          const giftCellIds = new Set(giftsRef.current.map(g => g.cellId));
           
-          let candidates = cells.filter(c => !c.isGiven && !c.isSystemRevealed && !bombCellIds.has(c.id));
+          let candidates = cells.filter(c => !c.isGiven && !c.isSystemRevealed && !giftCellIds.has(c.id));
           let p1 = candidates.filter(c => c.value === null && c.drafts.length === 0);
           let p2 = candidates.filter(c => c.value === null && c.drafts.length > 0);
           let p3 = candidates.filter(c => c.value !== null);
@@ -712,30 +659,30 @@
           
           const targets = pool.slice(0, count);
           targets.forEach(t => {
-              const bId = Math.random().toString(36).substring(2, 10);
-              const newBomb = { id: bId, cellId: t.id, attackerUid, clicks: 0, expireTime: Date.now() + 5000 };
-              bombsRef.current.push(newBomb);
-              setTimeout(() => { if (processBombTimeoutRef.current) processBombTimeoutRef.current(bId); }, 5000);
+              const gId = Math.random().toString(36).substring(2, 10);
+              const newGift = { id: gId, cellId: t.id, attackerUid, clicks: 0, expireTime: Date.now() + 5000 };
+              giftsRef.current.push(newGift);
+              setTimeout(() => { if (processGiftTimeoutRef.current) processGiftTimeoutRef.current(gId); }, 5000);
           });
-          setBombs([...bombsRef.current]);
+          setGifts([...giftsRef.current]);
       };
 
-      const handleBombClickRef = useRef();
-      handleBombClickRef.current = (bombId) => {
-          const idx = bombsRef.current.findIndex(b => b.id === bombId);
+      const handleGiftClickRef = useRef();
+      handleGiftClickRef.current = (giftId) => {
+          const idx = giftsRef.current.findIndex(g => g.id === giftId);
           if (idx === -1) return;
-          const b = bombsRef.current[idx];
-          b.clicks += 1;
-          if (b.clicks >= 3) {
-              bombsRef.current = bombsRef.current.filter(x => x.id !== bombId);
-              setBombs([...bombsRef.current]);
-              revealSystemCellRef.current(b.cellId);
+          const g = giftsRef.current[idx];
+          g.clicks += 1;
+          if (g.clicks >= 3) {
+              giftsRef.current = giftsRef.current.filter(x => x.id !== giftId);
+              setGifts([...giftsRef.current]);
+              revealSystemCellRef.current(g.cellId);
               
-              const msg = { type: 'COUNTER_ATTACK', targetUid: b.attackerUid };
+              const msg = { type: 'COUNTER_ATTACK', targetUid: g.attackerUid };
               if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
               else if (connRef.current) connRef.current.send(msg);
           } else {
-              setBombs([...bombsRef.current]);
+              setGifts([...giftsRef.current]);
           }
       };
 
@@ -750,7 +697,7 @@
               const c2 = arr[idx2];
               
               setFlippingKeys(fk => [...fk, c1, c2]);
-              showToast("⚠️ 遭到反擊！數字按鍵位置已混亂對調！");
+              showToast("🎁 對手拆開了禮物！您的數字按鍵被惡作劇對調了！");
               
               setTimeout(() => {
                   setPadOrder(currentOrder => {
@@ -770,6 +717,29 @@
           });
       };
 
+      useEffect(() => {
+          if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing') return;
+          const isFull = activeCells.every(c => c.value !== null);
+          const hasNoConflicts = conflictCellIds.size === 0;
+          
+          if (isFull && hasNoConflicts) {
+              if (isGhostRace) {
+                  if (!isWinnerDeclaredRef.current) {
+                      isWinnerDeclaredRef.current = true;
+                      const finishTime = Date.now(); setEndTime(finishTime); setMatchPhase('finished');
+                      const me = playersList.find(p => p.id === myId);
+                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)) };
+                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
+                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
+                  }
+              } else {
+                  if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); setMatchPhase('finished'); }
+              }
+          } else {
+              if (isWon) { setIsWon(false); setEndTime(null); setMatchPhase('playing'); }
+          }
+      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId, matchPhase]);
+
       const syncState = (partial, shouldBroadcast = true) => {
           if (partial.cells !== undefined) setCells(partial.cells);
           if (partial.localCells !== undefined) setLocalCells(partial.localCells);
@@ -780,7 +750,7 @@
 
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
-              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); }
+              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; giftsRef.current = []; setGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); }
           }
           
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
@@ -1066,12 +1036,17 @@
               if (!isCompleted) setSelectedChar(prev => prev === c ? null : c);
           } else if (tracker.count === 2) {
               if (!isCompleted) {
-                  if (isGhostRace) { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); tracker.count = 0; } 
-                  else { if (interactionMode === 0) autoFillHiddenSingles(c); else if (interactionMode === 1) autoFillDrafts(c); }
+                  if (isGhostRace) { 
+                      if (interactionMode === 1) autoFillDrafts(c);
+                      else { showToast("⚠️ 競速模式為確保公平，僅開放「草稿」雙擊連鎖！"); tracker.count = 0; }
+                  } else { 
+                      if (interactionMode === 0) autoFillHiddenSingles(c); 
+                      else if (interactionMode === 1) autoFillDrafts(c); 
+                  }
               }
           } else if (tracker.count === 5) {
               if (!isGhostRace) { if (interactionMode === 0) runAutoFillCycle(c); else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用"); } 
-              else { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); }
+              else { showToast("⚠️ 競速模式為確保公平，已封印連鎖填寫！"); }
               tracker.count = 0; 
           }
       };
@@ -1091,8 +1066,7 @@
 
       const toggleInteractionMode = () => {
         if (isAutoFillingRef.current || matchPhase !== 'playing') return;
-        const nextMode = (interactionMode + 1) % (engineRef.current === 'peerjs' ? 3 : 2);
-        if(isGhostRace && nextMode === 2) return; 
+        const nextMode = (interactionMode + 1) % 3;
         setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
       };
 
@@ -1198,7 +1172,7 @@
             if (nextCell.value === selectedChar) { nextCell.value = null; nextCell.owner = null; } 
             else { 
                 nextCell.value = selectedChar; nextValue = selectedChar; nextCell.owner = myId; nextCell.drafts = []; 
-                if (isGhostRace && nextValue && solutionGridRef.current) isCorrect = solutionGridRef.current[target.y][target.x] === nextValue;
+                if (isGhostRace && nextValue && solutionGridRef.current) isCorrect = solutionGridRef.current[target.y][target.x] === cSizeDef.chars.indexOf(nextValue);
                 for (let i = 0; i < nextCells.length; i++) {
                     if (i !== targetIdx) {
                         const c = nextCells[i];
@@ -1279,7 +1253,7 @@
       const switchToOffline = () => {
         if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
         setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false; setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null; setCursors({}); setRipples([]); setInteractionMode(0);
-        setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); setPadOrder(cSizeDef.chars); scrambledCharsRef.current.clear();
+        setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; giftsRef.current = []; setGifts([]); completedRegionsRef.current.clear(); setPadOrder(cSizeDef.chars); scrambledCharsRef.current.clear();
         setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11], isReady: false }]);
       };
 
@@ -1292,7 +1266,7 @@
         let solution = null; if (isGhostRace) solution = getSolutionGrid(initialLevelData.cells, initialLevelData.sizeDef);
         const initLocalCells = JSON.parse(JSON.stringify(initialLevelData.cells));
         syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution, matchPhase: isGhostRace ? 'waiting' : 'playing', countdownTarget: null }, false);
-        setIsGenerating(false); setPadOrder(initialLevelData.sizeDef.chars); scrambledCharsRef.current.clear(); bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear();
+        setIsGenerating(false); setPadOrder(initialLevelData.sizeDef.chars); scrambledCharsRef.current.clear(); giftsRef.current = []; setGifts([]); completedRegionsRef.current.clear();
         const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
         if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; await setupFirebase(finalId, pName, true); } 
         else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(finalId, pName, true); }
@@ -1333,7 +1307,7 @@
               if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
               if (gs.startTime) { setStartTime(gs.startTime); setMatchStartTime(gs.startTime); } if (gs.strokes !== undefined) setStrokes(gs.strokes);
               if (gs.matchPhase !== undefined) setMatchPhase(gs.matchPhase); if (gs.countdownTarget !== undefined) setCountdownTarget(gs.countdownTarget);
-              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
+              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; giftsRef.current = []; setGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
               if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar); if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace); if (gs.winner !== undefined) setWinner(gs.winner);
               if (gs.solutionGrid !== undefined) { const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid; solutionGridRef.current = parsedGrid; gs.solutionGrid = parsedGrid; }
@@ -1362,7 +1336,7 @@
                   } else if (m.type === 'CURSOR') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   } else if (m.type === 'CLICK') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
                   } else if (m.type === 'REGION_COMPLETE') {
-                      if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnBombsRef.current) spawnBombsRef.current(m.uid, m.count); }
+                      if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnGiftsRef.current) spawnGiftsRef.current(m.uid, m.count); }
                       connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
                   } else if (m.type === 'COUNTER_ATTACK') {
                       if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); }
@@ -1391,7 +1365,7 @@
                   else if (m.type === 'CURSOR') setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   else if (m.type === 'CLICK') setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
                   else if (m.type === 'REQ_REJOIN') connRef.current.send({ type: 'JOIN', pName: myNameRef.current || "玩家", uid: myId, color: myColorRef.current });
-                  else if (m.type === 'REGION_COMPLETE') { if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnBombsRef.current) spawnBombsRef.current(m.uid, m.count); } }
+                  else if (m.type === 'REGION_COMPLETE') { if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnGiftsRef.current) spawnGiftsRef.current(m.uid, m.count); } }
                   else if (m.type === 'COUNTER_ATTACK') { if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); } }
                 });
                 c.on('close', function() { showToast("⚠️ 主機已離線，切換為單機模式"); switchToOffline(); });
@@ -1435,7 +1409,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.6)</div>
           </div>
         );
       }
@@ -1845,7 +1819,7 @@
                             return (
                                 <g key={b.id} transform={`translate(${cx}, ${cy})`} onClick={(e) => { e.stopPropagation(); if (handleBombClickRef.current) handleBombClickRef.current(b.id); }}>
                                     <circle r={CELL_SIZE * 0.4} fill="rgba(255, 255, 255, 0.85)" className="pointer-events-none" />
-                                    <text className="anim-bomb select-none" textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.5} y="-4">💣</text>
+                                    <text className="anim-gift select-none" textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.5} y="-4">🎁</text>
                                     <text y={CELL_SIZE * 0.3} fill="#E3002B" fontSize={CELL_SIZE * 0.3} fontWeight="900" textAnchor="middle" className="select-none pointer-events-none">{timeLeft}</text>
                                 </g>
                             );
@@ -1856,7 +1830,7 @@
                             const cx = cell.x * CELL_SIZE + CELL_SIZE / 2;
                             const cy = cell.y * CELL_SIZE + CELL_SIZE / 2;
                             return (
-                                <text key={ex.id} x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE} className="anim-explosion select-none pointer-events-none">💥</text>
+                                <text key={ex.id} x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE} className="anim-explosion select-none pointer-events-none">✨</text>
                             )
                         })}
                     </g>

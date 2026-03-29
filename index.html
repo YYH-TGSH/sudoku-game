@@ -46,12 +46,18 @@
     @keyframes dotAnim { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
     .animate-loading-dots::after { content: ''; animation: dotAnim 1.5s infinite; }
 
-    /* 幽靈顯靈特效：網點閃爍 */
-    @keyframes ghostPulse {
-        0%, 100% { opacity: 0.4; }
-        50% { opacity: 0.9; }
+    /* 炸彈與爆炸特效 */
+    @keyframes bombWiggle {
+        0%, 100% { transform: rotate(-5deg) scale(1); }
+        50% { transform: rotate(5deg) scale(1.15); filter: drop-shadow(0 0 5px rgba(255,0,0,0.4)); }
     }
-    .ghost-highlight { animation: ghostPulse 2s ease-in-out infinite; }
+    .anim-bomb { animation: bombWiggle 0.4s ease-in-out infinite; cursor: pointer; pointer-events: auto; }
+    
+    @keyframes explosionFade {
+        0% { transform: scale(0.5); opacity: 1; }
+        100% { transform: scale(3); opacity: 0; }
+    }
+    .anim-explosion { animation: explosionFade 0.6s ease-out forwards; pointer-events: none; }
 
     @keyframes rainbowStopAnim {
       0%{stop-color:#E3002B;} 5%{stop-color:#F35B00;} 10%{stop-color:#FFC90E;} 15%{stop-color:#D7157A;} 20%{stop-color:#E895C0;} 25%{stop-color:#007A61;} 30%{stop-color:#87D300;} 35%{stop-color:#C4D600;} 40%{stop-color:#8DD1BF;} 45%{stop-color:#616130;} 50%{stop-color:#00538A;} 55%{stop-color:#008CC1;} 60%{stop-color:#00C1D5;} 65%{stop-color:#79C8ED;} 70%{stop-color:#CDBB79;} 75%{stop-color:#41136A;} 80%{stop-color:#935CB9;} 85%{stop-color:#BCA8D1;} 90%{stop-color:#7A0026;} 95%{stop-color:#BC7B70;} 100%{stop-color:#E3002B;}
@@ -61,6 +67,10 @@
     .rainbow-fill { fill: url(#rainbowGrad) !important; }
     .rainbow-bg { background: linear-gradient(90deg, #E3002B, #FFC90E, #87D300, #00C1D5, #935CB9, #E3002B); background-size: 200% 100%; animation: rb 2s linear infinite; }
     @keyframes rb { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
+
+    /* 按鍵翻轉特效 */
+    .key-btn { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, box-shadow 0.2s; backface-visibility: hidden; }
+    .key-flip { transform: rotateY(90deg) scale(0.85); opacity: 0.3; }
 
     .custom-scrollbar::-webkit-scrollbar { width: 12px; height: 12px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-left: 2px solid #1e293b; border-top: 2px solid #1e293b; }
@@ -99,7 +109,6 @@
     };
 
     const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : providedConfig;
-    const APP_ID = typeof __app_id !== 'undefined' ? __app_id : 'sudoku-hybrid-v2';
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getFirestore(app);
@@ -117,7 +126,7 @@
       return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : COLORS[Math.floor(Math.random() * COLORS.length)];
     };
 
-    // === 數獨雙選單設定 ===
+    // === 數獨設定 ===
     const SIZES = [
       { id: 4, name: "4x4 幼幼班", size: 4, boxW: 2, boxH: 2, chars: ['1','2','3','4'] },
       { id: 9, name: "9x9 標準", size: 9, boxW: 3, boxH: 3, chars: ['1','2','3','4','5','6','7','8','9'] },
@@ -179,7 +188,6 @@
 
     function countSolutions(grid, size, boxW, boxH, limit = 2) {
         let count = 0;
-        
         const getCandidates = (y, x) => {
             let used = new Array(size).fill(false);
             for (let i = 0; i < size; i++) {
@@ -195,72 +203,47 @@
                 }
             }
             let candidates = [];
-            for (let v = 0; v < size; v++) {
-                if (!used[v]) candidates.push(v);
-            }
+            for (let v = 0; v < size; v++) if (!used[v]) candidates.push(v);
             return candidates;
         };
 
         const solve = () => {
             let minCandidates = size + 1;
-            let bestY = -1;
-            let bestX = -1;
-            let bestCand = null;
-
+            let bestY = -1; let bestX = -1; let bestCand = null;
             for (let y = 0; y < size; y++) {
                 for (let x = 0; x < size; x++) {
                     if (grid[y][x] === null) {
                         const cands = getCandidates(y, x);
                         if (cands.length === 0) return false; 
-                        if (cands.length < minCandidates) {
-                            minCandidates = cands.length;
-                            bestY = y;
-                            bestX = x;
-                            bestCand = cands;
-                            if (minCandidates === 1) break; 
-                        }
+                        if (cands.length < minCandidates) { minCandidates = cands.length; bestY = y; bestX = x; bestCand = cands; if (minCandidates === 1) break; }
                     }
                 }
                 if (minCandidates === 1) break;
             }
-
-            if (bestY === -1) {
-                count++;
-                return count >= limit;
-            }
-
+            if (bestY === -1) { count++; return count >= limit; }
             for (let i = 0; i < bestCand.length; i++) {
                 grid[bestY][bestX] = bestCand[i];
-                if (solve()) {
-                    grid[bestY][bestX] = null;
-                    return true; 
-                }
+                if (solve()) { grid[bestY][bestX] = null; return true; }
                 grid[bestY][bestX] = null;
             }
             return false;
         };
-
-        solve();
-        return count;
+        solve(); return count;
     }
 
     async function generateSudokuAsync(sizeId, diffId, onProgress) {
         const sizeDef = SIZES.find(s => s.id === sizeId);
         const diffDef = DIFFICULTIES.find(d => d.id === diffId);
         const targetRange = diffDef.targets[sizeId];
-        
         const targetClues = Math.floor(Math.random() * (targetRange[1] - targetRange[0] + 1)) + targetRange[0];
         const targetMax = targetRange[1];
-        
         const { size, boxW, boxH, chars } = sizeDef;
         
         let bestResult = null;
         let minCluesAchieved = Infinity;
-        
         const maxAttempts = size === 16 ? 8 : 40;
         const generationStartTime = Date.now();
-        let isTimedOut = false;
-        let lastTick = 0;
+        let isTimedOut = false; let lastTick = 0;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             if (isTimedOut) break;
@@ -282,10 +265,7 @@
             for(let y=0; y<size; y++) for(let x=0; x<size; x++) positions.push({x,y});
             positions.sort(() => Math.random() - 0.5);
 
-            let currentClues = size * size;
-            let failCount = 0; 
-            const maxCheckHoles = positions.length; 
-            
+            let currentClues = size * size; let failCount = 0; const maxCheckHoles = positions.length; 
             const testGrid = puzzle.map(r => [...r]);
 
             for (let i = 0; i < maxCheckHoles; i++) {
@@ -294,36 +274,18 @@
 
                 if (elapsedSecs >= 20) {
                     const remainingSecs = 30 - elapsedSecs;
-                    if (remainingSecs <= 0) {
-                        isTimedOut = true;
-                        break; 
-                    }
-                    if (now - lastTick >= 1000) {
-                        lastTick = now;
-                        if (onProgress) onProgress(`題目生成不超過 ${remainingSecs} 秒...`);
-                        await new Promise(r => setTimeout(r, 15)); 
-                    }
+                    if (remainingSecs <= 0) { isTimedOut = true; break; }
+                    if (now - lastTick >= 1000) { lastTick = now; if (onProgress) onProgress(`題目生成不超過 ${remainingSecs} 秒...`); await new Promise(r => setTimeout(r, 15)); }
                 }
-
                 if (currentClues <= targetClues) break; 
 
-                const p1 = positions[i];
-                const p2 = { x: size - 1 - p1.x, y: size - 1 - p1.y };
+                const p1 = positions[i]; const p2 = { x: size - 1 - p1.x, y: size - 1 - p1.y };
 
                 if (puzzle[p1.y][p1.x] !== null) {
-                    const backup1 = puzzle[p1.y][p1.x];
-                    const backup2 = puzzle[p2.y][p2.x];
-                    
-                    puzzle[p1.y][p1.x] = null;
-                    testGrid[p1.y][p1.x] = null;
+                    const backup1 = puzzle[p1.y][p1.x]; const backup2 = puzzle[p2.y][p2.x];
+                    puzzle[p1.y][p1.x] = null; testGrid[p1.y][p1.x] = null;
                     let removed = 1;
-                    
-                    if (p1.x !== p2.x || p1.y !== p2.y) {
-                        puzzle[p2.y][p2.x] = null;
-                        testGrid[p2.y][p2.x] = null;
-                        removed = 2;
-                    }
-
+                    if (p1.x !== p2.x || p1.y !== p2.y) { puzzle[p2.y][p2.x] = null; testGrid[p2.y][p2.x] = null; removed = 2; }
                     const testNumGrid = testGrid.map(row => row.map(v => v === null ? null : chars.indexOf(v)));
                     
                     if (countSolutions(testNumGrid, size, boxW, boxH, 2) !== 1) {
@@ -331,24 +293,13 @@
                         if (removed === 2) { puzzle[p2.y][p2.x] = backup2; testGrid[p2.y][p2.x] = backup2; }
                         failCount++;
                     } else {
-                        currentClues -= removed;
-                        failCount = 0; 
-                        if (currentClues < minCluesAchieved) {
-                            minCluesAchieved = currentClues;
-                            bestResult = puzzle.map(r => [...r]);
-                            if (elapsedSecs < 20 && onProgress) {
-                                onProgress(`挑戰極限難度... (目標: ${targetClues}格, 目前最佳: ${minCluesAchieved}格)`);
-                            }
-                        }
+                        currentClues -= removed; failCount = 0; 
+                        if (currentClues < minCluesAchieved) { minCluesAchieved = currentClues; bestResult = puzzle.map(r => [...r]); if (elapsedSecs < 20 && onProgress) { onProgress(`挑戰極限難度... (目標: ${targetClues}格, 目前最佳: ${minCluesAchieved}格)`); } }
                     }
-
-                    if (currentClues <= targetMax && failCount > 25) {
-                        break;
-                    }
+                    if (currentClues <= targetMax && failCount > 25) break;
                 }
                 if (size === 16 || i % 15 === 0) await new Promise(r => setTimeout(r, 0));
             }
-
             if (currentClues <= targetMax || isTimedOut) break; 
         }
 
@@ -360,11 +311,10 @@
                 const isGiven = bestResult[y][x] !== null;
                 cells.push({
                     id: `${x}-${y}`, x: x, y: y, boxId: Math.floor(x/boxW) + Math.floor(y/boxH) * (size/boxW),
-                    value: isGiven ? bestResult[y][x] : null, isGiven: isGiven, drafts: [], owner: null
+                    value: isGiven ? bestResult[y][x] : null, isGiven: isGiven, drafts: [], owner: null, isSystemRevealed: false
                 });
             }
         }
-
         return { sizeDef, diffDef, cells };
     }
 
@@ -429,6 +379,23 @@
       const [drawSubMode, setDrawSubMode] = useState('pen');
       const [selectedChar, setSelectedChar] = useState(null); 
       
+      // === 炸彈與反擊系統相關狀態 ===
+      const [padOrder, setPadOrder] = useState(SIZES[1].chars);
+      const [flippingKeys, setFlippingKeys] = useState([]);
+      const scrambledCharsRef = useRef(new Set()); // 紀錄被打亂的數字，禁用智慧吸取
+      
+      const [bombs, setBombs] = useState([]);
+      const bombsRef = useRef([]);
+      const [explosions, setExplosions] = useState([]);
+      const completedRegionsRef = useRef(new Set());
+      const [nowTimer, setNowTimer] = useState(Date.now());
+
+      useEffect(() => {
+          if (bombs.length === 0) return;
+          const t = setInterval(() => setNowTimer(Date.now()), 200);
+          return () => clearInterval(t);
+      }, [bombs.length]);
+
       const modeIcons = ['🖋️', '✏️', '🖌️'];
       const modeTitles = ['填答模式', '草稿模式', '畫筆作記號'];
 
@@ -444,6 +411,7 @@
 
       const [roomId, setRoomId] = useState("");
       const [isHost, setIsHost] = useState(false);
+      const isHostRef = useRef(false);
       const [tempRoomId, setTempRoomId] = useState("");
       const [tempPlayerName, setTempPlayerName] = useState("");
       const [stableMode, setStableMode] = useState(false); 
@@ -462,7 +430,6 @@
       const isDrawingRef = useRef(false);
 
       const engineRef = useRef('none');
-      const isHostRef = useRef(false);
       const peerRef = useRef(null);
       const connRef = useRef(null); 
       const connsRef = useRef([]); 
@@ -485,7 +452,6 @@
       const MAX_SAFE_DIMENSION = 8500;
 
       const cSizeDef = levelData.sizeDef;
-      const cDiffDef = levelData.diffDef;
       const CELL_SIZE = 60;
       const PADDING = 20;
       const svgW = cSizeDef.size * CELL_SIZE + PADDING * 2;
@@ -493,12 +459,16 @@
 
       const activeCells = isGhostRace ? localCells : cells;
 
-      // === 確保新局時清除幽靈 ===
+      // === 確保新局時清除幽靈與重置按鈕順序 ===
       useEffect(() => {
           setGhostHints({});
-      }, [startTime]);
+          bombsRef.current = [];
+          setBombs([]);
+          completedRegionsRef.current.clear();
+          scrambledCharsRef.current.clear();
+          setPadOrder(cSizeDef.chars);
+      }, [startTime, cSizeDef.chars]);
 
-      // 檢查數字是否填滿
       const completedChars = useMemo(() => {
           const counts = {};
           activeCells.forEach(c => { if (c.value !== null) counts[c.value] = (counts[c.value] || 0) + 1; });
@@ -509,21 +479,21 @@
 
       useEffect(() => { if (selectedChar && completedChars.has(selectedChar)) setSelectedChar(null); }, [completedChars, selectedChar]);
 
-      // 鍵盤支援
+      // === 鍵盤支援 (套用洗牌邏輯) ===
       useEffect(() => {
           if (screen !== 'game') return;
           const handleKeyDown = (e) => {
               if (interactionMode >= 2 || isAutoFillingRef.current) return;
               const key = e.key.toUpperCase();
-              if (cSizeDef.chars.includes(key)) {
-                  if (!completedChars.has(key)) setSelectedChar(prev => prev === key ? null : key);
+              const originalIndex = cSizeDef.chars.indexOf(key);
+              if (originalIndex !== -1) {
+                  const actualChar = padOrder[originalIndex];
+                  if (actualChar && !completedChars.has(actualChar)) setSelectedChar(prev => prev === actualChar ? null : actualChar);
               } else if (e.key === 'q' || e.key === 'Q') toggleInteractionMode();
           };
           window.addEventListener('keydown', handleKeyDown);
           return () => window.removeEventListener('keydown', handleKeyDown);
-      }, [screen, cSizeDef.chars, interactionMode, completedChars]);
-
-      useEffect(() => { if (selectedChar !== null && cSizeDef && cSizeDef.chars && !cSizeDef.chars.includes(selectedChar)) setSelectedChar(null); }, [cSizeDef, selectedChar]);
+      }, [screen, cSizeDef.chars, padOrder, interactionMode, completedChars]);
 
       const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[11]; }; 
       
@@ -547,7 +517,6 @@
 
       useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner]);
 
-      // 計算衝突
       const conflictCellIds = useMemo(() => {
         const conflicts = new Set();
         const grid = Array(cSizeDef.size).fill(null).map(() => Array(cSizeDef.size).fill(null));
@@ -574,6 +543,189 @@
         return conflicts;
       }, [activeCells, cSizeDef]);
 
+      // === 檢測區域完成並發送炸彈訊號 (嚴格比對答案，排除全提示格) ===
+      useEffect(() => {
+          if (!isGhostRace || isGenerating || !localCells.length) return;
+          const solution = solutionGridRef.current;
+          if (!solution) return;
+          
+          let newComps = 0;
+          const s = cSizeDef.size;
+          const chars = cSizeDef.chars;
+          
+          for(let i=0; i<s; i++) {
+              if (!completedRegionsRef.current.has(`R${i}`)) {
+                  const rowCells = localCells.filter(c => c.y === i);
+                  if (rowCells.length === s && rowCells.every(c => c.value === solution[c.y][c.x])) {
+                      completedRegionsRef.current.add(`R${i}`); 
+                      if (!rowCells.every(c => c.isGiven)) newComps++;
+                  }
+              }
+              if (!completedRegionsRef.current.has(`C${i}`)) {
+                  const colCells = localCells.filter(c => c.x === i);
+                  if (colCells.length === s && colCells.every(c => c.value === solution[c.y][c.x])) {
+                      completedRegionsRef.current.add(`C${i}`); 
+                      if (!colCells.every(c => c.isGiven)) newComps++;
+                  }
+              }
+              if (!completedRegionsRef.current.has(`B${i}`)) {
+                  const boxCells = localCells.filter(c => c.boxId === i);
+                  if (boxCells.length === s && boxCells.every(c => c.value === solution[c.y][c.x])) {
+                      completedRegionsRef.current.add(`B${i}`); 
+                      if (!boxCells.every(c => c.isGiven)) newComps++;
+                  }
+              }
+          }
+          
+          chars.forEach((char) => {
+              if (!completedRegionsRef.current.has(`N${char}`)) {
+                  const numCells = localCells.filter(c => c.value === char);
+                  if (numCells.length === s && numCells.every(c => c.value === solution[c.y][c.x])) {
+                      completedRegionsRef.current.add(`N${char}`); 
+                      if (!numCells.every(c => c.isGiven)) newComps++;
+                  }
+              }
+          });
+
+          if (newComps > 0) {
+              const msg = { type: 'REGION_COMPLETE', uid: myId, count: newComps * 2 };
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
+              else if (connRef.current) connRef.current.send(msg);
+          }
+      }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars]);
+
+      // === 系統強制解開格子邏輯 ===
+      const revealSystemCellRef = useRef();
+      revealSystemCellRef.current = (cellId) => {
+          setLocalCells(prev => {
+              const nextCells = [...prev];
+              const targetIdx = nextCells.findIndex(c => c.id === cellId);
+              if (targetIdx === -1) return prev;
+              const target = nextCells[targetIdx];
+              
+              const grid = solutionGridRef.current;
+              if (!grid) return prev;
+              const ans = grid[target.y][target.x]; 
+              
+              nextCells[targetIdx] = { ...target, value: ans, drafts: [], isSystemRevealed: true, owner: null };
+              
+              for (let i = 0; i < nextCells.length; i++) {
+                  if (i !== targetIdx) {
+                          const c = nextCells[i];
+                          if (c.x === target.x || c.y === target.y || c.boxId === target.boxId) {
+                              if (c.drafts.includes(ans)) {
+                                  nextCells[i] = { ...c, drafts: c.drafts.filter(d => d !== ans) };
+                              }
+                          }
+                  }
+              }
+              stateRef.current.localCells = nextCells;
+              return nextCells;
+          });
+          
+          const me = playersListRef.current.find(p => p.id === myId);
+          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId };
+          if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
+          else if (connRef.current) connRef.current.send(msg);
+      };
+
+      // === 炸彈處理機制 ===
+      const processBombTimeoutRef = useRef();
+      processBombTimeoutRef.current = (bombId) => {
+          const currentBombs = bombsRef.current;
+          if (currentBombs.some(b => b.id === bombId)) {
+              bombsRef.current = currentBombs.filter(b => b.id !== bombId);
+              setBombs([...bombsRef.current]);
+              
+              const targetBomb = currentBombs.find(b => b.id === bombId);
+              if (targetBomb) {
+                  setExplosions(prev => [...prev, { id: Math.random(), cellId: targetBomb.cellId }]);
+                  setTimeout(() => setExplosions(prev => prev.slice(1)), 1000);
+                  revealSystemCellRef.current(targetBomb.cellId);
+              }
+          }
+      };
+
+      const spawnBombsRef = useRef();
+      spawnBombsRef.current = (attackerUid, count) => {
+          const cells = stateRef.current.localCells; 
+          const bombCellIds = new Set(bombsRef.current.map(b => b.cellId));
+          
+          let candidates = cells.filter(c => !c.isGiven && !c.isSystemRevealed && !bombCellIds.has(c.id));
+          let p1 = candidates.filter(c => c.value === null && c.drafts.length === 0);
+          let p2 = candidates.filter(c => c.value === null && c.drafts.length > 0);
+          let p3 = candidates.filter(c => c.value !== null);
+          
+          const shuffle = arr => arr.sort(() => Math.random() - 0.5);
+          const pool = [...shuffle(p1), ...shuffle(p2), ...shuffle(p3)];
+          
+          const targets = pool.slice(0, count);
+          targets.forEach(t => {
+              const bId = Math.random().toString(36).substring(2, 10);
+              const newBomb = { id: bId, cellId: t.id, attackerUid, clicks: 0, expireTime: Date.now() + 5000 };
+              bombsRef.current.push(newBomb);
+              
+              setTimeout(() => {
+                  if (processBombTimeoutRef.current) processBombTimeoutRef.current(bId);
+              }, 5000);
+          });
+          setBombs([...bombsRef.current]);
+      };
+
+      const handleBombClickRef = useRef();
+      handleBombClickRef.current = (bombId) => {
+          const idx = bombsRef.current.findIndex(b => b.id === bombId);
+          if (idx === -1) return;
+          const b = bombsRef.current[idx];
+          b.clicks += 1;
+          if (b.clicks >= 3) {
+              bombsRef.current = bombsRef.current.filter(x => x.id !== bombId);
+              setBombs([...bombsRef.current]);
+              revealSystemCellRef.current(b.cellId);
+              
+              const msg = { type: 'COUNTER_ATTACK', targetUid: b.attackerUid };
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
+              else if (connRef.current) connRef.current.send(msg);
+          } else {
+              setBombs([...bombsRef.current]);
+          }
+      };
+
+      const handleCounterAttackRef = useRef();
+      handleCounterAttackRef.current = () => {
+          setPadOrder(prev => {
+              const arr = [...prev];
+              let idx1 = Math.floor(Math.random() * arr.length);
+              let idx2 = Math.floor(Math.random() * arr.length);
+              while(idx1 === idx2) idx2 = Math.floor(Math.random() * arr.length);
+              const c1 = arr[idx1];
+              const c2 = arr[idx2];
+              
+              setFlippingKeys(fk => [...fk, c1, c2]);
+              showToast("⚠️ 遭到反擊！數字按鍵位置已混亂對調！");
+              
+              setTimeout(() => {
+                  setPadOrder(currentOrder => {
+                      const next = [...currentOrder];
+                      const i1 = next.indexOf(c1);
+                      const i2 = next.indexOf(c2);
+                      if(i1 !== -1 && i2 !== -1) {
+                          [next[i1], next[i2]] = [next[i2], next[i1]];
+                      }
+                      return next;
+                  });
+                  scrambledCharsRef.current.add(c1);
+                  scrambledCharsRef.current.add(c2);
+                  
+                  setTimeout(() => {
+                      setFlippingKeys(fk => fk.filter(k => k !== c1 && k !== c2));
+                  }, 50);
+              }, 250);
+              
+              return prev; 
+          });
+      };
+
       // 幽靈信號與勝利監聽
       useEffect(() => {
           if (!activeCells || activeCells.length === 0 || isGenerating || winner) return;
@@ -598,25 +750,16 @@
           }
       }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId]);
 
-      // 通用狀態同步 (完美隔離 Ghost Race 的 localCells 與安全廣播 autoFill 選取狀態)
+      // 通用狀態同步 (修復幽靈賽廣播洩漏問題)
       const syncState = (partial, shouldBroadcast = true) => {
           if (partial.cells !== undefined) setCells(partial.cells);
           if (partial.localCells !== undefined) setLocalCells(partial.localCells);
           if (partial.levelData !== undefined) setLevelData(partial.levelData);
-          if (partial.startTime !== undefined) {
-              setStartTime(partial.startTime);
-              setMatchStartTime(partial.startTime);
-          }
+          if (partial.startTime !== undefined) { setStartTime(partial.startTime); setMatchStartTime(partial.startTime); }
           
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
-              // 同步正在生成狀態時，強制重置所有人的勝利狀態
-              if (partial.isGenerating) {
-                  setIsWon(false);
-                  setWinner(null);
-                  setEndTime(null);
-                  isWinnerDeclaredRef.current = false;
-              }
+              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); }
           }
           
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
@@ -628,7 +771,10 @@
               partial.solutionGrid = parsedGrid;
           }
           
-          if (partial.sizeId !== undefined) setSizeId(partial.sizeId);
+          if (partial.sizeId !== undefined) {
+              setSizeId(partial.sizeId);
+              setPadOrder(SIZES.find(s => s.id === partial.sizeId).chars);
+          }
           if (partial.diffId !== undefined) setDiffId(partial.diffId);
           if (partial.strokes !== undefined) setStrokes(partial.strokes);
           if (partial.selectedChar !== undefined) setSelectedChar(partial.selectedChar);
@@ -650,65 +796,36 @@
                   strokes: updatedState.strokes
               };
 
-              // 若不是幽靈賽，我們需要廣播 cells 以及 auto-fill 的選擇狀態給隊友看動畫
               if (!updatedState.isGhostRace) {
                   broadcastData.cells = updatedState.cells;
                   broadcastData.localCells = updatedState.localCells;
-                  
-                  // 確保選取數字狀態也被廣播，讓隊友在循環填寫時能看到當前選字
-                  if (partial.selectedChar !== undefined) {
-                      broadcastData.selectedChar = partial.selectedChar;
-                  } else {
-                      broadcastData.selectedChar = updatedState.selectedChar;
-                  }
-                  
-                  if (updatedState.isAutoFilling || partial.isAutoFilling === false) {
-                      broadcastData.isAutoFilling = updatedState.isAutoFilling;
-                  }
+                  if (partial.selectedChar !== undefined) broadcastData.selectedChar = partial.selectedChar;
+                  else broadcastData.selectedChar = updatedState.selectedChar;
+                  if (updatedState.isAutoFilling || partial.isAutoFilling === false) broadcastData.isAutoFilling = updatedState.isAutoFilling;
               } else if (partial.levelData) {
-                  // 如果是幽靈賽，只有在產生新題目時，才廣播 cells/localCells 以初始化盤面，保護各自進度
                   broadcastData.cells = updatedState.cells;
                   broadcastData.localCells = updatedState.localCells;
               }
 
               if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { "gameState": JSON.parse(JSON.stringify(broadcastData)), updatedAt: Date.now() }).catch(e => {});
-              else if (engineRef.current === 'peerjs') { if (isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'SYNC', data: broadcastData })); else if (connRef.current) connRef.current.send({ type: 'SYNC', data: broadcastData }); }
+              else if (engineRef.current === 'peerjs') { 
+                  if (isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'SYNC', data: broadcastData })); 
+                  else if (connRef.current) connRef.current.send({ type: 'SYNC', data: broadcastData }); 
+              }
           }
       };
 
-      // 觸控縮放
-      useEffect(function() {
-        if (screen !== 'game') return; const el = zoomContainerRef.current; if (!el) return; let touchStartY = null;
-        const handleTouchStart = (e) => { if (e.touches.length === 1) touchStartY = e.touches[0].clientY; };
-        const handleTouchMove = (e) => {
-          if (interactionMode >= 2) return; 
-          if (e.touches.length === 2) {
-            e.preventDefault(); const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-            if (lastPinchDist.current) {
-              const delta = dist - lastPinchDist.current; let newZoom = Math.min(Math.max(zoomLevelRef.current + delta * 0.005, 0.4), 3.5);
-              if (svgW * newZoom > MAX_SAFE_DIMENSION || svgH * newZoom > MAX_SAFE_DIMENSION) newZoom = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH);
-              zoomLevelRef.current = newZoom; if (svgRef.current) { svgRef.current.style.width = `${svgW * newZoom}px`; svgRef.current.style.height = `${svgH * newZoom}px`; }
-              if (zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; }
-            }
-            lastPinchDist.current = dist;
-          } else if (e.touches.length === 1 && touchStartY !== null) {
-            if (Math.abs(e.touches[0].clientY - touchStartY) > 30 && !isHeaderCollapsed) setIsHeaderCollapsed(true);
-          }
-        };
-        const handleTouchEnd = () => { lastPinchDist.current = null; touchStartY = null; if (zoomLevel !== zoomLevelRef.current) setZoomLevel(zoomLevelRef.current); };
-        const handleWheel = (e) => { if (interactionMode >= 2) return; if (Math.abs(e.deltaY) > 10 && !isHeaderCollapsed) setIsHeaderCollapsed(true); if (e.ctrlKey && zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; } };
-        el.addEventListener('touchstart', handleTouchStart, { passive: true }); el.addEventListener('touchmove', handleTouchMove, { passive: false }); el.addEventListener('touchend', handleTouchEnd); el.addEventListener('touchcancel', handleTouchEnd); el.addEventListener('wheel', handleWheel, { passive: true });
-        return () => { el.removeEventListener('touchstart', handleTouchStart); el.removeEventListener('touchmove', handleTouchMove); el.removeEventListener('touchend', handleTouchEnd); el.removeEventListener('touchcancel', handleTouchEnd); el.removeEventListener('wheel', handleWheel); };
-      }, [screen, isHeaderCollapsed, interactionMode, svgW, svgH, zoomLevel]);
-
-      useEffect(function() {
-        if (ripples.length === 0) return;
-        const timer = setTimeout(() => { const now = Date.now(); setRipples(prev => prev.filter(r => now - r.timestamp < 1000)); }, 1000);
-        return () => clearTimeout(timer);
-      }, [ripples]);
-
       const showToast = (m) => { setToastMsg(m); setTimeout(() => setToastMsg(""), 4000); };
-      const getSvgCoords = (clientX, clientY) => { const svg = svgRef.current; if (!svg) return null; let pt = svg.createSVGPoint(); pt.x = clientX; pt.y = clientY; const ctm = svg.getScreenCTM(); return ctm ? pt.matrixTransform(ctm.inverse()) : null; };
+      
+      const getSvgCoords = (clientX, clientY) => { 
+          const svg = svgRef.current; 
+          if (!svg) return null; 
+          let pt = svg.createSVGPoint(); 
+          pt.x = clientX; 
+          pt.y = clientY; 
+          const ctm = svg.getScreenCTM(); 
+          return ctm ? pt.matrixTransform(ctm.inverse()) : null; 
+      };
 
       const eraseAtPoint = (cx, cy) => {
           const offsets = [[0,0], [15,0], [-15,0], [0,15], [0,-15], [10,10], [-10,-10], [10,-10], [-10,10]];
@@ -717,12 +834,16 @@
               const els = document.elementsFromPoint(cx + off[0], cy + off[1]);
               for (let el of els) {
                   if (el.classList.contains('doodle-stroke')) {
-                      const sid = el.getAttribute('data-stroke-id'); const strokeObj = stateRef.current.strokes.find(s => s.id === sid);
+                      const sid = el.getAttribute('data-stroke-id'); 
+                      const strokeObj = stateRef.current.strokes.find(s => s.id === sid);
                       if (((strokeObj && strokeObj.uid) || (strokeObj ? strokeObj.id.split('-')[1] : null)) === myId) hitIds.add(sid);
                   }
               }
           }
-          if (hitIds.size > 0) { const newStrokes = stateRef.current.strokes.filter(s => !hitIds.has(s.id)); if (newStrokes.length !== stateRef.current.strokes.length) syncState({ strokes: newStrokes }); }
+          if (hitIds.size > 0) { 
+              const newStrokes = stateRef.current.strokes.filter(s => !hitIds.has(s.id)); 
+              if (newStrokes.length !== stateRef.current.strokes.length) syncState({ strokes: newStrokes }); 
+          }
       };
 
       const handlePointerDown = (e) => {
@@ -734,7 +855,6 @@
             setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: myId, x: pt.x, y: pt.y, timestamp: Date.now() }]);
         }
         
-        // 廣播游標與點擊動作給隊友看 (即使在畫筆模式下)
         if (engineRef.current !== 'peerjs' || !showOtherCursors) return;
         const msg = { type: 'CLICK', uid: myId, x: pt.x, y: pt.y }; 
         if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
@@ -772,215 +892,86 @@
         });
       };
 
-      // === 雙擊自動填答 (非同步視覺化連鎖) ===
       const autoFillHiddenSingles = async (char) => {
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
-          
           syncState({ isAutoFilling: true, selectedChar: char }, !isGhostRace);
-          
-          let changed = false;
-          let stateChanged = false;
-          let currentCells = [...(isGhostRace ? stateRef.current.localCells : stateRef.current.cells)];
-
-          const isValid = (cell, gridCells) => {
-              if (cell.value !== null) return false;
-              for (let other of gridCells) {
-                  if (other.value === char) {
-                      if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) {
-                          return false;
-                      }
-                  }
-              }
-              return true;
-          };
-
+          let changed = false; let stateChanged = false; let currentCells = [...(isGhostRace ? stateRef.current.localCells : stateRef.current.cells)];
+          const isValid = (cell, gridCells) => { if (cell.value !== null) return false; for (let other of gridCells) { if (other.value === char) { if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) return false; } } return true; };
           const fill = async (cellId) => {
               const idx = currentCells.findIndex(c => c.id === cellId);
               if (idx !== -1) {
-                  currentCells = [...currentCells]; 
-                  const targetCell = currentCells[idx];
+                  currentCells = [...currentCells]; const targetCell = currentCells[idx];
                   currentCells[idx] = { ...targetCell, value: char, drafts: [], owner: myId };
-                  changed = true;
-                  stateChanged = true;
-                  
+                  changed = true; stateChanged = true;
                   for (let i = 0; i < currentCells.length; i++) {
                       if (i !== idx) {
                           const c = currentCells[i];
-                          if (c.x === targetCell.x || c.y === targetCell.y || c.boxId === targetCell.boxId) {
-                              if (c.drafts.includes(char)) {
-                                  currentCells[i] = { ...c, drafts: c.drafts.filter(d => d !== char) };
-                              }
-                          }
+                          if (c.x === targetCell.x || c.y === targetCell.y || c.boxId === targetCell.boxId) { if (c.drafts.includes(char)) currentCells[i] = { ...c, drafts: c.drafts.filter(d => d !== char) }; }
                       }
                   }
-                  
                   if (isGhostRace) {
                       syncState({ localCells: currentCells }, false);
-                      if (isMultiplayer) {
-                          const me = playersListRef.current.find(p => p.id === myId);
-                          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId };
-                          if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
-                      }
-                  } else {
-                      syncState({ cells: currentCells });
-                  }
+                      if (isMultiplayer) { const me = playersListRef.current.find(p => p.id === myId); const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId }; if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); }
+                  } else { syncState({ cells: currentCells }); }
                   await new Promise(r => setTimeout(r, 100));
               }
           };
 
           do {
               changed = false;
-              for (let y = 0; y < cSizeDef.size; y++) {
-                  const rowCells = currentCells.filter(c => c.y === y);
-                  if (rowCells.some(c => c.value === char)) continue;
-                  const validEmpties = rowCells.filter(c => isValid(c, currentCells));
-                  if (validEmpties.length === 1) await fill(validEmpties[0].id);
-              }
+              for (let y = 0; y < cSizeDef.size; y++) { const rowCells = currentCells.filter(c => c.y === y); if (rowCells.some(c => c.value === char)) continue; const validEmpties = rowCells.filter(c => isValid(c, currentCells)); if (validEmpties.length === 1) await fill(validEmpties[0].id); }
               if (changed) continue;
-
-              for (let x = 0; x < cSizeDef.size; x++) {
-                  const colCells = currentCells.filter(c => c.x === x);
-                  if (colCells.some(c => c.value === char)) continue;
-                  const validEmpties = colCells.filter(c => isValid(c, currentCells));
-                  if (validEmpties.length === 1) await fill(validEmpties[0].id);
-              }
+              for (let x = 0; x < cSizeDef.size; x++) { const colCells = currentCells.filter(c => c.x === x); if (colCells.some(c => c.value === char)) continue; const validEmpties = colCells.filter(c => isValid(c, currentCells)); if (validEmpties.length === 1) await fill(validEmpties[0].id); }
               if (changed) continue;
-
-              for (let b = 0; b < cSizeDef.size; b++) {
-                  const boxCells = currentCells.filter(c => c.boxId === b);
-                  if (boxCells.some(c => c.value === char)) continue;
-                  const validEmpties = boxCells.filter(c => isValid(c, currentCells));
-                  if (validEmpties.length === 1) await fill(validEmpties[0].id);
-              }
+              for (let b = 0; b < cSizeDef.size; b++) { const boxCells = currentCells.filter(c => c.boxId === b); if (boxCells.some(c => c.value === char)) continue; const validEmpties = boxCells.filter(c => isValid(c, currentCells)); if (validEmpties.length === 1) await fill(validEmpties[0].id); }
           } while (changed);
 
           if (stateChanged) {
-              if (engineRef.current === 'none') {
-                  setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), currentCells]);
-              }
-              if (currentCells.every(c => c.value !== null)) syncState({ selectedChar: null }, !isGhostRace);
-              else showToast(`✅ 自動填入 ${char} 成功！`);
-          } else {
-              showToast(`💡 目前找不到必定為 ${char} 的空格了`);
-          }
-          isAutoFillingRef.current = false;
-          syncState({ isAutoFilling: false, selectedChar: null }, !isGhostRace);
+              if (engineRef.current === 'none') setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), currentCells]);
+              if (currentCells.every(c => c.value !== null)) syncState({ selectedChar: null }, !isGhostRace); else showToast(`✅ 自動填入 ${char} 成功！`);
+          } else { showToast(`💡 目前找不到必定為 ${char} 的空格了`); }
+          isAutoFillingRef.current = false; syncState({ isAutoFilling: false, selectedChar: null }, !isGhostRace);
       };
 
-      // === 雙擊自動填草稿 ===
       const autoFillDrafts = async (char) => {
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true, selectedChar: char }, !isGhostRace);
-
-          let stateChanged = false;
-          let currentCells = [...(isGhostRace ? stateRef.current.localCells : stateRef.current.cells)];
-          
-          const isValid = (cell) => {
-              if (cell.value !== null) return false;
-              for (let other of currentCells) {
-                  if (other.value === char) {
-                      if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) {
-                          return false;
-                      }
-                  }
-              }
-              return true;
-          };
+          let stateChanged = false; let currentCells = [...(isGhostRace ? stateRef.current.localCells : stateRef.current.cells)];
+          const isValid = (cell) => { if (cell.value !== null) return false; for (let other of currentCells) { if (other.value === char) { if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) return false; } } return true; };
 
           for (let y = 0; y < cSizeDef.size; y++) {
-              let rowChanged = false;
-              let newRowCells = [...currentCells]; 
+              let rowChanged = false; let newRowCells = [...currentCells]; 
               for (let x = 0; x < cSizeDef.size; x++) {
-                  const cellIdx = newRowCells.findIndex(c => c.x === x && c.y === y);
-                  const cell = newRowCells[cellIdx];
-                  if (cell.value === null && isValid(cell)) {
-                      if (!cell.drafts.includes(char)) {
-                          newRowCells[cellIdx] = { ...cell, drafts: [...cell.drafts, char] };
-                          stateChanged = true;
-                          rowChanged = true;
-                      }
-                  }
+                  const cellIdx = newRowCells.findIndex(c => c.x === x && c.y === y); const cell = newRowCells[cellIdx];
+                  if (cell.value === null && isValid(cell)) { if (!cell.drafts.includes(char)) { newRowCells[cellIdx] = { ...cell, drafts: [...cell.drafts, char] }; stateChanged = true; rowChanged = true; } }
               }
-              if (rowChanged) {
-                  currentCells = newRowCells;
-                  if (isGhostRace) syncState({ localCells: currentCells }, false); else syncState({ cells: currentCells });
-                  await new Promise(r => setTimeout(r, 40));
-              }
+              if (rowChanged) { currentCells = newRowCells; if (isGhostRace) syncState({ localCells: currentCells }, false); else syncState({ cells: currentCells }); await new Promise(r => setTimeout(r, 40)); }
           }
 
-          if (stateChanged) {
-              if (engineRef.current === 'none') {
-                  setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), currentCells]);
-              }
-              showToast(`✏️ 已將 ${char} 標記至所有安全的空格中`);
-          } else {
-              showToast(`💡 沒有更多安全的空格可以標記 ${char} 了`);
-          }
-          isAutoFillingRef.current = false;
-          syncState({ isAutoFilling: false, selectedChar: null }, !isGhostRace);
+          if (stateChanged) { if (engineRef.current === 'none') setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), currentCells]); showToast(`✏️ 已將 ${char} 標記至所有安全的空格中`); } else { showToast(`💡 沒有更多安全的空格可以標記 ${char} 了`); }
+          isAutoFillingRef.current = false; syncState({ isAutoFilling: false, selectedChar: null }, !isGhostRace);
       };
 
-      // === 五連擊全自動循環填答 ===
       const runAutoFillCycle = async (startChar) => {
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true }, !isGhostRace);
-
-          let changed = false;
-          let stateChanged = false;
-          let currentCells = [...(isGhostRace ? stateRef.current.localCells : stateRef.current.cells)];
-          let totalFilled = 0;
-
-          const chars = cSizeDef.chars;
-          const startIndex = chars.indexOf(startChar);
-
-          const isValid = (cell, gridCells, checkChar) => {
-              if (cell.value !== null) return false;
-              for (let other of gridCells) {
-                  if (other.value === checkChar) {
-                      if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) return false;
-                  }
-              }
-              return true;
-          };
-
-          const isCharCompleted = (checkChar, gridCells) => {
-              return gridCells.filter(c => c.value === checkChar).length === cSizeDef.size;
-          };
-
+          let changed = false; let stateChanged = false; let currentCells = [...(isGhostRace ? stateRef.current.localCells : stateRef.current.cells)]; let totalFilled = 0;
+          const chars = cSizeDef.chars; const startIndex = chars.indexOf(startChar);
+          const isValid = (cell, gridCells, checkChar) => { if (cell.value !== null) return false; for (let other of gridCells) { if (other.value === checkChar) { if (other.x === cell.x || other.y === cell.y || other.boxId === cell.boxId) return false; } } return true; };
+          const isCharCompleted = (checkChar, gridCells) => { return gridCells.filter(c => c.value === checkChar).length === cSizeDef.size; };
           const fill = async (cellId, fillChar) => {
               const idx = currentCells.findIndex(c => c.id === cellId);
               if (idx !== -1) {
-                  currentCells = [...currentCells]; 
-                  const targetCell = currentCells[idx];
-                  currentCells[idx] = { ...targetCell, value: fillChar, drafts: [], owner: myId };
-                  changed = true;
-                  stateChanged = true;
-                  totalFilled++;
-                  
+                  currentCells = [...currentCells]; const targetCell = currentCells[idx];
+                  currentCells[idx] = { ...targetCell, value: fillChar, drafts: [], owner: myId }; changed = true; stateChanged = true; totalFilled++;
                   for (let i = 0; i < currentCells.length; i++) {
-                      if (i !== idx) {
-                          const c = currentCells[i];
-                          if (c.x === targetCell.x || c.y === targetCell.y || c.boxId === targetCell.boxId) {
-                              if (c.drafts.includes(fillChar)) {
-                                  currentCells[i] = { ...c, drafts: c.drafts.filter(d => d !== fillChar) };
-                              }
-                          }
-                      }
+                      if (i !== idx) { const c = currentCells[i]; if (c.x === targetCell.x || c.y === targetCell.y || c.boxId === targetCell.boxId) { if (c.drafts.includes(fillChar)) { currentCells[i] = { ...c, drafts: c.drafts.filter(d => d !== fillChar) }; } } }
                   }
-                  
-                  if (isGhostRace) {
-                      syncState({ localCells: currentCells, selectedChar: fillChar }, false);
-                      if (isMultiplayer) {
-                          const me = playersListRef.current.find(p => p.id === myId);
-                          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId };
-                          if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
-                      }
-                  } else {
-                      syncState({ cells: currentCells, selectedChar: fillChar });
-                  }
+                  if (isGhostRace) { syncState({ localCells: currentCells, selectedChar: fillChar }, false); if (isMultiplayer) { const me = playersListRef.current.find(p => p.id === myId); const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId }; if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); } } 
+                  else { syncState({ cells: currentCells, selectedChar: fillChar }); }
                   await new Promise(r => setTimeout(r, 100));
               }
           };
@@ -989,100 +980,44 @@
           do {
               passChanged = false;
               for (let i = 0; i < chars.length; i++) {
-                  const charIdx = (startIndex + i) % chars.length;
-                  const char = chars[charIdx];
-                  
+                  const charIdx = (startIndex + i) % chars.length; const char = chars[charIdx];
                   if (currentCells.every(c => c.value !== null)) break;
                   if (isCharCompleted(char, currentCells)) continue;
-
-                  syncState({ selectedChar: char }, !isGhostRace);
-                  await new Promise(r => setTimeout(r, 50)); 
-
+                  syncState({ selectedChar: char }, !isGhostRace); await new Promise(r => setTimeout(r, 50)); 
                   do {
                       changed = false;
-                      for (let y = 0; y < cSizeDef.size; y++) {
-                          const rowCells = currentCells.filter(c => c.y === y);
-                          if (rowCells.some(c => c.value === char)) continue;
-                          const validEmpties = rowCells.filter(c => isValid(c, currentCells, char));
-                          if (validEmpties.length === 1) await fill(validEmpties[0].id, char);
-                      }
+                      for (let y = 0; y < cSizeDef.size; y++) { const rowCells = currentCells.filter(c => c.y === y); if (rowCells.some(c => c.value === char)) continue; const validEmpties = rowCells.filter(c => isValid(c, currentCells, char)); if (validEmpties.length === 1) await fill(validEmpties[0].id, char); }
                       if (changed) { passChanged = true; continue; }
-
-                      for (let x = 0; x < cSizeDef.size; x++) {
-                          const colCells = currentCells.filter(c => c.x === x);
-                          if (colCells.some(c => c.value === char)) continue;
-                          const validEmpties = colCells.filter(c => isValid(c, currentCells, char));
-                          if (validEmpties.length === 1) await fill(validEmpties[0].id, char);
-                      }
+                      for (let x = 0; x < cSizeDef.size; x++) { const colCells = currentCells.filter(c => c.x === x); if (colCells.some(c => c.value === char)) continue; const validEmpties = colCells.filter(c => isValid(c, currentCells, char)); if (validEmpties.length === 1) await fill(validEmpties[0].id, char); }
                       if (changed) { passChanged = true; continue; }
-
-                      for (let b = 0; b < cSizeDef.size; b++) {
-                          const boxCells = currentCells.filter(c => c.boxId === b);
-                          if (boxCells.some(c => c.value === char)) continue;
-                          const validEmpties = boxCells.filter(c => isValid(c, currentCells, char));
-                          if (validEmpties.length === 1) await fill(validEmpties[0].id, char);
-                      }
+                      for (let b = 0; b < cSizeDef.size; b++) { const boxCells = currentCells.filter(c => c.boxId === b); if (boxCells.some(c => c.value === char)) continue; const validEmpties = boxCells.filter(c => isValid(c, currentCells, char)); if (validEmpties.length === 1) await fill(validEmpties[0].id, char); }
                       if (changed) passChanged = true;
-
                   } while (changed);
               }
           } while (passChanged && !currentCells.every(c => c.value !== null));
 
-          if (stateChanged) {
-              if (engineRef.current === 'none') {
-                  setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), currentCells]);
-              }
-              if (currentCells.every(c => c.value !== null)) {
-                  syncState({ selectedChar: null }, !isGhostRace);
-              } else {
-                  showToast(`🚀 全自動循環填寫完畢！\n共幫您填入了 ${totalFilled} 格。`);
-              }
-          } else {
-              showToast(`💡 目前已經找不到必定能填寫的空格了`);
-              syncState({ selectedChar: null }, !isGhostRace);
-          }
-          isAutoFillingRef.current = false;
-          syncState({ isAutoFilling: false, selectedChar: null }, !isGhostRace);
+          if (stateChanged) { if (engineRef.current === 'none') { setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), currentCells]); } if (currentCells.every(c => c.value !== null)) { syncState({ selectedChar: null }, !isGhostRace); } else { showToast(`🚀 全自動循環填寫完畢！\n共幫您填入了 ${totalFilled} 格。`); } } 
+          else { showToast(`💡 目前已經找不到必定能填寫的空格了`); syncState({ selectedChar: null }, !isGhostRace); }
+          isAutoFillingRef.current = false; syncState({ isAutoFilling: false, selectedChar: null }, !isGhostRace);
       };
 
-      // === 點擊追蹤與清空草稿 ===
       const clickTracker = useRef({ char: null, count: 0, time: 0 });
       const onNumClick = (e, c) => {
-          e.preventDefault();
-          if (isAutoFillingRef.current || winner) return; 
-          
-          const now = Date.now();
-          const tracker = clickTracker.current;
-
-          if (tracker.char === c && now - tracker.time < 400) {
-              tracker.count += 1;
-          } else {
-              tracker.char = c;
-              tracker.count = 1;
-          }
-          tracker.time = now;
-          
-          const isCompleted = completedChars.has(c);
+          e.preventDefault(); if (isAutoFillingRef.current || winner) return; 
+          const now = Date.now(); const tracker = clickTracker.current;
+          if (tracker.char === c && now - tracker.time < 400) { tracker.count += 1; } else { tracker.char = c; tracker.count = 1; }
+          tracker.time = now; const isCompleted = completedChars.has(c);
 
           if (tracker.count === 1) {
               if (!isCompleted) setSelectedChar(prev => prev === c ? null : c);
           } else if (tracker.count === 2) {
               if (!isCompleted) {
-                  if (isGhostRace) {
-                      showToast("⚠️ 幽靈賽為確保公平，不支援自動連鎖填寫！");
-                      tracker.count = 0;
-                  } else {
-                      if (interactionMode === 0) autoFillHiddenSingles(c);
-                      else if (interactionMode === 1) autoFillDrafts(c);
-                  }
+                  if (isGhostRace) { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); tracker.count = 0; } 
+                  else { if (interactionMode === 0) autoFillHiddenSingles(c); else if (interactionMode === 1) autoFillDrafts(c); }
               }
           } else if (tracker.count === 5) {
-              if (!isGhostRace) {
-                  if (interactionMode === 0) runAutoFillCycle(c);
-                  else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用");
-              } else {
-                  showToast("⚠️ 幽靈賽為確保公平，不支援自動連鎖填寫！");
-              }
+              if (!isGhostRace) { if (interactionMode === 0) runAutoFillCycle(c); else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用"); } 
+              else { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); }
               tracker.count = 0; 
           }
       };
@@ -1090,45 +1025,20 @@
       const handleClearAllDrafts = () => {
           if (isAutoFillingRef.current) return;
           const newCells = activeCells.map(c => ({...c, drafts: []}));
-          if (engineRef.current === 'none') {
-              setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), activeCells]);
-          }
-          if (isGhostRace) syncState({ localCells: newCells }, false);
-          else syncState({ cells: newCells });
+          if (engineRef.current === 'none') setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), activeCells]);
+          if (isGhostRace) syncState({ localCells: newCells }, false); else syncState({ cells: newCells });
           showToast("🧽 已一鍵清除所有草稿記號！");
       };
 
       const modeLongPressTimer = useRef(null);
-      const handleModePointerDown = (e) => {
-          if (isAutoFillingRef.current) return;
-          if (interactionMode === 1) { 
-              modeLongPressTimer.current = setTimeout(() => {
-                  handleClearAllDrafts();
-                  modeLongPressTimer.current = null;
-                  if (navigator.vibrate) navigator.vibrate(50); 
-              }, 600); 
-          }
-      };
-      const handleModePointerUp = (e) => {
-          if (isAutoFillingRef.current) return;
-          if (modeLongPressTimer.current) {
-              clearTimeout(modeLongPressTimer.current);
-              modeLongPressTimer.current = null;
-              toggleInteractionMode();
-          } else if (interactionMode !== 1) {
-              toggleInteractionMode();
-          }
-      };
-      const handleModePointerLeave = () => {
-          if (modeLongPressTimer.current) {
-              clearTimeout(modeLongPressTimer.current);
-              modeLongPressTimer.current = null;
-          }
-      };
+      const handleModePointerDown = (e) => { if (isAutoFillingRef.current) return; if (interactionMode === 1) { modeLongPressTimer.current = setTimeout(() => { handleClearAllDrafts(); modeLongPressTimer.current = null; if (navigator.vibrate) navigator.vibrate(50); }, 600); } };
+      const handleModePointerUp = (e) => { if (isAutoFillingRef.current) return; if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; toggleInteractionMode(); } else if (interactionMode !== 1) { toggleInteractionMode(); } };
+      const handleModePointerLeave = () => { if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; } };
 
       const toggleInteractionMode = () => {
         if (isAutoFillingRef.current) return;
-        const nextMode = (interactionMode + 1) % 3;
+        const nextMode = (interactionMode + 1) % (engineRef.current === 'peerjs' ? 3 : 2);
+        if(isGhostRace && nextMode === 2) return; 
         setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
       };
 
@@ -1142,42 +1052,27 @@
           if (isGhostRace) return [];
           const counts = {};
           cells.forEach(c => {
-              if (!c.isGiven && c.value !== null && !conflictCellIds.has(c.id) && c.owner) {
-                  counts[c.owner] = (counts[c.owner] || 0) + 1;
-              }
+              if (!c.isGiven && c.value !== null && !conflictCellIds.has(c.id) && c.owner) counts[c.owner] = (counts[c.owner] || 0) + 1;
           });
-          return Object.entries(counts).map(([uid, count]) => ({
-              uid,
-              color: getPlayerColor(uid),
-              pct: (count / totalEmpty) * 100
-          }));
+          return Object.entries(counts).map(([uid, count]) => ({ uid, color: getPlayerColor(uid), pct: (count / totalEmpty) * 100 }));
       }, [cells, conflictCellIds, totalEmpty, playersList, isGhostRace]);
 
       const myProgressPct = useMemo(() => {
           if (!isGhostRace || !localCells.length) return 0;
-          const filledCorrect = localCells.filter(c => !c.isGiven && c.value !== null && conflictCellIds.size === 0).length;
+          const filledCorrect = localCells.filter(c => !c.isGiven && c.value !== null && !conflictCellIds.has(c.id)).length;
           return Math.floor((filledCorrect / totalEmpty) * 100);
       }, [isGhostRace, localCells, conflictCellIds, totalEmpty]);
       
       const teamProgressPct = isGhostRace ? myProgressPct : Math.floor(playerProgress.reduce((sum, p) => sum + p.pct, 0));
 
-      // 選項 Y: 輔助高亮系統 (十字與宮格)
       const highlightZones = useMemo(() => {
           const zones = new Set();
           if (selectedChar !== null && interactionMode < 2) {
               activeCells.forEach(c => {
                   if (c.value === selectedChar) {
-                      for (let i = 0; i < cSizeDef.size; i++) {
-                          zones.add(`${c.x}-${i}`); 
-                          zones.add(`${i}-${c.y}`); 
-                      }
-                      const bx = Math.floor(c.x / cSizeDef.boxW) * cSizeDef.boxW;
-                      const by = Math.floor(c.y / cSizeDef.boxH) * cSizeDef.boxH;
-                      for(let dy=0; dy<cSizeDef.boxH; dy++) {
-                          for(let dx=0; dx<cSizeDef.boxW; dx++) {
-                              zones.add(`${bx+dx}-${by+dy}`);
-                          }
-                      }
+                      for (let i = 0; i < cSizeDef.size; i++) { zones.add(`${c.x}-${i}`); zones.add(`${i}-${c.y}`); }
+                      const bx = Math.floor(c.x / cSizeDef.boxW) * cSizeDef.boxW; const by = Math.floor(c.y / cSizeDef.boxH) * cSizeDef.boxH;
+                      for(let dy=0; dy<cSizeDef.boxH; dy++) for(let dx=0; dx<cSizeDef.boxW; dx++) zones.add(`${bx+dx}-${by+dy}`);
                   }
               });
           }
@@ -1202,17 +1097,16 @@
           const data = JSON.parse(decodeURIComponent(atob(saveCode.trim())));
           const restoredCells = data.l.cells.map(c => { const saved = data.c.find(sc => sc.i === c.id); return saved ? { ...c, value: saved.v, drafts: saved.d || [], owner: saved.o } : c; });
           syncState({ sizeId: data.sId, diffId: data.dId, levelData: data.l, cells: restoredCells, localCells: restoredCells, strokes: data.s || [] });
-          setIsWon(false); setShowSaveModal(false); showToast("✅ 讀取成功！");
-          setSelectedChar(null); 
+          setIsWon(false); setShowSaveModal(false); showToast("✅ 讀取成功！"); setSelectedChar(null); 
         } catch(e) { showToast("⚠️ 讀檔失敗！"); }
       };
 
-      const handleZoomIn = () => { let nz = Math.min(zoomLevelRef.current + 0.3, 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) { nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH); showToast("⚠️ 已達顯示極限"); } zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
+      const handleZoomIn = () => { let nz = Math.min(zoomLevelRef.current + 0.3, 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
       const handleZoomOut = () => { let nz = Math.max(zoomLevelRef.current - 0.3, 0.4); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
       const handleCycleZoom = () => {
         const ni = (zoomModeIdxRef.current + 1) % 4; setZoomModeIdx(ni); zoomModeIdxRef.current = ni;
         const c = zoomContainerRef.current; if (!c) return; const pf = 0.95; const cw = c.clientWidth; const ch = c.clientHeight;
-        let nz = 1; if (ni === 0) { nz = 1; showToast("🔍 原始大小 (1x)"); } else if (ni === 1) { nz = (cw / svgW) * pf; showToast("↔️ 適應寬度"); } else if (ni === 2) { nz = (ch / svgH) * pf; showToast("↕️ 適應長度"); } else { nz = Math.min(cw / svgW, ch / svgH) * pf; showToast("🔲 長寬適應"); }
+        let nz = 1; if (ni === 0) nz = 1; else if (ni === 1) nz = (cw / svgW) * pf; else if (ni === 2) nz = (ch / svgH) * pf; else nz = Math.min(cw / svgW, ch / svgH) * pf;
         nz = Math.min(Math.max(nz, 0.2), 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH);
         zoomLevelRef.current = nz; setZoomLevel(nz); if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; }
       };
@@ -1223,45 +1117,38 @@
         const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
         
-        if (selectedChar === null) {
-            if (target.value !== null) setSelectedChar(target.value);
-            return;
-        }
-
-        if (target.isGiven) {
-            setSelectedChar(prev => prev === target.value ? null : target.value);
+        if (selectedChar === null) { 
+            if (target.value !== null) {
+                if (isGhostRace && scrambledCharsRef.current.has(target.value)) {
+                    showToast("⚠️ 這個數字的按鍵已被打亂，無法使用智慧吸取！");
+                    return;
+                }
+                setSelectedChar(target.value); 
+            }
             return; 
         }
-
-        if (engineRef.current === 'none') {
-            setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), cur]);
+        
+        if (target.isGiven || target.isSystemRevealed) { 
+            if (isGhostRace && target.value !== selectedChar && scrambledCharsRef.current.has(target.value)) {
+                showToast("⚠️ 這個數字的按鍵已被打亂，無法使用智慧吸取！");
+                return;
+            }
+            setSelectedChar(prev => prev === target.value ? null : target.value); 
+            return; 
         }
         
-        const nextCells = [...cur]; let nextCell = { ...target };
-        let isCorrect = false;
-        let nextValue = null;
+        if (engineRef.current === 'none') setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), cur]);
         
+        const nextCells = [...cur]; let nextCell = { ...target }; let isCorrect = false; let nextValue = null;
         if (interactionMode === 0) { 
-            if (nextCell.value === selectedChar) { 
-                nextCell.value = null; nextCell.owner = null; 
-            } else { 
-                nextCell.value = selectedChar; 
-                nextValue = selectedChar;
-                nextCell.owner = myId; 
-                nextCell.drafts = []; 
-                
-                if (isGhostRace && nextValue && solutionGridRef.current) {
-                    isCorrect = solutionGridRef.current[target.y][target.x] === nextValue;
-                }
-
+            if (nextCell.value === selectedChar) { nextCell.value = null; nextCell.owner = null; } 
+            else { 
+                nextCell.value = selectedChar; nextValue = selectedChar; nextCell.owner = myId; nextCell.drafts = []; 
+                if (isGhostRace && nextValue && solutionGridRef.current) isCorrect = solutionGridRef.current[target.y][target.x] === nextValue;
                 for (let i = 0; i < nextCells.length; i++) {
                     if (i !== targetIdx) {
                         const c = nextCells[i];
-                        if (c.x === target.x || c.y === target.y || c.boxId === target.boxId) {
-                            if (c.drafts.includes(selectedChar)) {
-                                nextCells[i] = { ...c, drafts: c.drafts.filter(d => d !== selectedChar) };
-                            }
-                        }
+                        if (c.x === target.x || c.y === target.y || c.boxId === target.boxId) { if (c.drafts.includes(selectedChar)) nextCells[i] = { ...c, drafts: c.drafts.filter(d => d !== selectedChar) }; }
                     }
                 }
             }
@@ -1273,7 +1160,6 @@
         }
 
         nextCells[targetIdx] = nextCell; 
-        
         if (isGhostRace) {
             syncState({ localCells: nextCells }, false);
             if (isCorrect && isMultiplayer) {
@@ -1281,55 +1167,38 @@
                 const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId };
                 if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
             }
-        } else {
-            syncState({ cells: nextCells });
-        }
+        } else { syncState({ cells: nextCells }); }
       };
 
       const handleUndo = () => {
         if (history.length === 0 || isWon || engineRef.current !== 'none' || isAutoFillingRef.current) return;
         const previousState = history[history.length - 1];
-        syncState({ cells: previousState, localCells: previousState }, false); 
-        setHistory(past => past.slice(0, -1));
+        syncState({ cells: previousState, localCells: previousState }, false); setHistory(past => past.slice(0, -1));
       };
 
       const handleReset = () => {
         if (isAutoFillingRef.current) return;
         const currentActive = isGhostRace ? localCells : cells;
-        const resetCells = currentActive.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null }));
+        const resetCells = currentActive.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null, isSystemRevealed: false }));
         syncState({ cells: resetCells, localCells: resetCells, strokes: [], startTime: Date.now() }, !isGhostRace);
         if (engineRef.current === 'none') setHistory([]);
-        setIsWon(false); setEndTime(null);
-        setSelectedChar(null);
+        setIsWon(false); setEndTime(null); setSelectedChar(null);
       };
 
-      // ==== 核心的非同步觸發與狀態綁定 ====
       const generateAndSync = (sId, dId, ghostMode) => {
         if (isAutoFillingRef.current) return;
-        setIsGenerating(true);
-        setWinner(null);
-        isWinnerDeclaredRef.current = false;
-        setGhostHints({});
+        setIsGenerating(true); setWinner(null); isWinnerDeclaredRef.current = false; setGhostHints({}); setPadOrder(SIZES.find(s => s.id === sId).chars); scrambledCharsRef.current.clear();
         const isGR = ghostMode !== undefined ? ghostMode : isGhostRace;
-
-        // 廣播給所有玩家顯示生成中畫面
         syncState({ isGenerating: true, isGhostRace: isGR, winner: null }, true);
 
         setTimeout(() => {
             purgeGhostPlayers();
             generateSudokuAsync(sId, dId, setGenProgress).then(newData => {
-                let solution = null;
-                if (isGR) {
-                    solution = getSolutionGrid(newData.cells, newData.sizeDef);
-                }
-                const initLocalCells = JSON.parse(JSON.stringify(newData.cells));
-                const now = Date.now();
+                let solution = null; if (isGR) solution = getSolutionGrid(newData.cells, newData.sizeDef);
+                const initLocalCells = JSON.parse(JSON.stringify(newData.cells)); const now = Date.now();
                 syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: now, isGhostRace: isGR, winner: null, solutionGrid: solution, isGenerating: false, selectedChar: null }, true);
-                setIsWon(false); setHistory([]); 
-                if (sId !== sizeId) { setZoomLevel(1); setZoomModeIdx(0); } 
-                setEndTime(null); setHideVictoryModal(false);
-                setSelectedChar(null);
-                setGenProgress("");
+                setIsWon(false); setHistory([]); if (sId !== sizeId) { setZoomLevel(1); setZoomModeIdx(0); } 
+                setEndTime(null); setHideVictoryModal(false); setSelectedChar(null); setGenProgress("");
             });
         }, 100);
       };
@@ -1337,65 +1206,26 @@
       const handleSizeChange = (e) => { generateAndSync(Number(e.target.value), diffId); };
       const handleDiffChange = (e) => { generateAndSync(sizeId, e.target.value); };
       const handleRegenerateRandom = () => { generateAndSync(sizeId, diffId); };
-
       const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
-      const triggerRegenerate = () => { 
-          setIsWon(false); 
-          setIsClosingModal(true); 
-          setTimeout(() => { 
-              setIsClosingModal(false); 
-              handleRegenerateRandom(); 
-          }, 300); 
-      };
+      const triggerRegenerate = () => { setIsWon(false); setIsClosingModal(true); setTimeout(() => { setIsClosingModal(false); handleRegenerateRandom(); }, 300); };
 
       const switchToOffline = () => {
         if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
-        setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false;
-        setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null;
-        setCursors({}); setRipples([]); setInteractionMode(0);
-        
-        // 徹底清除幽靈賽狀態，避免單機模式功能被鎖死
-        setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false;
-        
-        // 切回單機時，恢復為預設單機玩家（藍色）
+        setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false; setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null; setCursors({}); setRipples([]); setInteractionMode(0);
+        setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); setPadOrder(cSizeDef.chars); scrambledCharsRef.current.clear();
         setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11] }]);
       };
 
-      const startSinglePlayer = () => { 
-          switchToOffline(); 
-          setScreen('game'); 
-          setIsHeaderCollapsed(false); 
-          generateAndSync(sizeId, diffId, false); 
-      };
+      const startSinglePlayer = () => { switchToOffline(); setScreen('game'); setIsHeaderCollapsed(false); generateAndSync(sizeId, diffId, false); };
 
       const initiateHostGame = async () => {
-        const pName = tempPlayerName.trim(); if (!pName) return showToast("⚠️ 請先設定顯示暱稱");
-        setIsConnecting(true); 
-
-        setIsGenerating(true);
-        syncState({ isGenerating: true }, false);
-        
+        const pName = tempPlayerName.trim(); if (!pName) return showToast("⚠️ 請先設定顯示暱稱"); setIsConnecting(true); setIsGenerating(true); syncState({ isGenerating: true }, false);
         await new Promise(r => setTimeout(r, 50));
-        
         const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
-        
-        let solution = null;
-        if (isGhostRace) solution = getSolutionGrid(initialLevelData.cells, initialLevelData.sizeDef);
+        let solution = null; if (isGhostRace) solution = getSolutionGrid(initialLevelData.cells, initialLevelData.sizeDef);
         const initLocalCells = JSON.parse(JSON.stringify(initialLevelData.cells));
-
-        syncState({ 
-            levelData: initialLevelData, 
-            cells: initLocalCells, 
-            localCells: initLocalCells,
-            strokes: [], 
-            startTime: Date.now(),
-            isGenerating: false,
-            selectedChar: null,
-            solutionGrid: solution
-        }, false);
-        
-        setIsGenerating(false);
-
+        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution }, false);
+        setIsGenerating(false); setPadOrder(initialLevelData.sizeDef.chars); scrambledCharsRef.current.clear(); bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear();
         const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
         if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; await setupFirebase(finalId, pName, true); } 
         else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(finalId, pName, true); }
@@ -1433,28 +1263,13 @@
             if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current }] }).catch(e => {});
             if (data.gameState) {
               const gs = data.gameState;
-              if (gs.cells && gs.cells.length > 0) setCells(gs.cells); 
-              if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); 
-              if (gs.levelData) setLevelData(gs.levelData);
+              if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
               if (gs.startTime) setStartTime(gs.startTime); if (gs.strokes !== undefined) setStrokes(gs.strokes);
-              
-              if (gs.isGenerating !== undefined) {
-                  setIsGenerating(gs.isGenerating);
-                  if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; }
-              }
-              
-              if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar);
-              if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
-              if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace);
-              if (gs.winner !== undefined) setWinner(gs.winner);
-              
-              if (gs.solutionGrid !== undefined) {
-                  const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid;
-                  solutionGridRef.current = parsedGrid;
-                  gs.solutionGrid = parsedGrid;
-              }
-              
-              if (gs.sizeId !== undefined) setSizeId(gs.sizeId); if (gs.diffId !== undefined) setDiffId(gs.diffId);
+              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
+              if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar); if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
+              if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace); if (gs.winner !== undefined) setWinner(gs.winner);
+              if (gs.solutionGrid !== undefined) { const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid; solutionGridRef.current = parsedGrid; gs.solutionGrid = parsedGrid; }
+              if (gs.sizeId !== undefined) { setSizeId(gs.sizeId); setPadOrder(SIZES.find(s => s.id === gs.sizeId).chars); } if (gs.diffId !== undefined) setDiffId(gs.diffId);
               stateRef.current = gs;
             }
           }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
@@ -1470,37 +1285,23 @@
                 connsRef.current.push(c);
                 c.on('data', function(m) {
                   if (m.type === 'JOIN') {
-                      c.uid = m.uid; 
-                      setPlayersList(prev => {
-                          let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev) }];
-                          connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: stateRef.current, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList;
-                      });
-                  } else if (m.type === 'LEAVE') {
-                      setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
-                  } else if (m.type === 'SYNC') {
-                      syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
-                  } else if (m.type === 'GHOST_SOLVED') { 
-                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); 
-                      setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
-                  } else if (m.type === 'GHOST_I_WON' && stateRef.current.isGhostRace && !stateRef.current.winner) { 
-                      const player = playersListRef.current.find(pl => pl.id === c.uid); 
-                      if(player){ 
-                          const winInfo = { id: c.uid, name: player.name, color: player.color, time: formatTime(Math.floor((m.time - stateRef.current.startTime)/1000)) }; 
-                          setWinner(winInfo); 
-                          connsRef.current.forEach(conn => conn.send({ type: 'GHOST_WINNER', winner: winInfo }));
-                      } 
-                  } else if (m.type === 'REQ_COLOR_CHANGE') {
-                      setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
-                  } else if (m.type === 'CURSOR') {
-                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
-                  } else if (m.type === 'CLICK') {
-                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
+                      c.uid = m.uid; setPlayersList(prev => { let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev) }]; connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: { ...stateRef.current, solutionGrid: solutionGridRef.current }, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
+                  } else if (m.type === 'LEAVE') { setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
+                  } else if (m.type === 'SYNC') { syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
+                  } else if (m.type === 'GHOST_SOLVED') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
+                  } else if (m.type === 'GHOST_I_WON' && stateRef.current.isGhostRace && !stateRef.current.winner) { const player = playersListRef.current.find(pl => pl.id === c.uid); if(player){ const winInfo = { id: c.uid, name: player.name, color: player.color, time: formatTime(Math.floor((m.time - stateRef.current.startTime)/1000)) }; setWinner(winInfo); connsRef.current.forEach(conn => conn.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
+                  } else if (m.type === 'REQ_COLOR_CHANGE') { setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+                  } else if (m.type === 'CURSOR') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
+                  } else if (m.type === 'CLICK') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
+                  } else if (m.type === 'REGION_COMPLETE') {
+                      if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnBombsRef.current) spawnBombsRef.current(m.uid, m.count); }
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
+                  } else if (m.type === 'COUNTER_ATTACK') {
+                      if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); }
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
                   }
                 });
-                c.on('close', function() {
-                    connsRef.current = connsRef.current.filter(conn => conn.peer !== c.peer);
-                    if (c.uid) setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== c.uid); connsRef.current.forEach(conn => { if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
-                });
+                c.on('close', function() { connsRef.current = connsRef.current.filter(conn => conn.peer !== c.peer); if (c.uid) setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== c.uid); connsRef.current.forEach(conn => { if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; }); });
               });
             });
             p.on('error', function() { setIsConnecting(false); switchToOffline(); showToast("⚠️ 無法建立對局大廳，請重試"); });
@@ -1510,14 +1311,16 @@
                 const c = guestP.connect('yyh-tgsh-' + rId + '-host'); connRef.current = c;
                 c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName || "玩家", uid: myId, color: myColorRef.current }); });
                 c.on('data', function(m) {
-                  if (m.type === 'INIT') { if (m.players) setPlayersList(m.players); if (m.data) syncState(m.data, false); }
-                  else if (m.type === 'SYNC') syncState(m.data, false);
+                  if (m.type === 'INIT') { if (m.players) setPlayersList(m.players); if (m.data) { if(m.data.solutionGrid) solutionGridRef.current = m.data.solutionGrid; syncState({ ...m.data, localCells: JSON.parse(JSON.stringify(m.data.localCells || m.data.cells)) }, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); } }
+                  else if (m.type === 'SYNC') { syncState(m.data, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); }
                   else if (m.type === 'PLAYERS_UPDATE') { if (m.players) setPlayersList(m.players); }
                   else if (m.type === 'GHOST_SOLVED') { setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); }
                   else if (m.type === 'GHOST_WINNER') { setWinner(m.winner); if(m.winner.id === myId) setEndTime(Date.now()); }
                   else if (m.type === 'CURSOR') setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   else if (m.type === 'CLICK') setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
                   else if (m.type === 'REQ_REJOIN') connRef.current.send({ type: 'JOIN', pName: myNameRef.current || "玩家", uid: myId, color: myColorRef.current });
+                  else if (m.type === 'REGION_COMPLETE') { if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnBombsRef.current) spawnBombsRef.current(m.uid, m.count); } }
+                  else if (m.type === 'COUNTER_ATTACK') { if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); } }
                 });
                 c.on('close', function() { showToast("⚠️ 主機已離線，切換為單機模式"); switchToOffline(); });
             });
@@ -1537,19 +1340,9 @@
       };
 
       const handlePlayerColorChange = (playerId, newColor) => {
-        if (engineRef.current === 'none') {
-            setPlayersList(prev => prev.map(p => p.id === playerId ? { ...p, color: newColor } : p));
-            return;
-        }
-        if (engineRef.current === 'firebase' && roomRef.current) { 
-            const nList = playersListRef.current.map(p => p.id === playerId ? { ...p, color: newColor } : p); 
-            setPlayersList(nList); 
-            updateDoc(roomRef.current, { players: nList }).catch(e => {}); 
-        } 
-        else if (engineRef.current === 'peerjs') { 
-            if (isHostRef.current) setPlayersList(prev => { const nList = prev.map(p => p.id === playerId ? { ...p, color: newColor } : p); connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; }); 
-            else if (connRef.current) connRef.current.send({ type: 'REQ_COLOR_CHANGE', targetId: playerId, color: newColor }); 
-        }
+        if (engineRef.current === 'none') { setPlayersList(prev => prev.map(p => p.id === playerId ? { ...p, color: newColor } : p)); return; }
+        if (engineRef.current === 'firebase' && roomRef.current) { const nList = playersListRef.current.map(p => p.id === playerId ? { ...p, color: newColor } : p); setPlayersList(nList); updateDoc(roomRef.current, { players: nList }).catch(e => {}); } 
+        else if (engineRef.current === 'peerjs') { if (isHostRef.current) setPlayersList(prev => { const nList = prev.map(p => p.id === playerId ? { ...p, color: newColor } : p); connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; }); else if (connRef.current) connRef.current.send({ type: 'REQ_COLOR_CHANGE', targetId: playerId, color: newColor }); }
       };
 
       if (screen === 'home') {
@@ -1570,7 +1363,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.2.2)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.4.2)</div>
           </div>
         );
       }
@@ -1742,7 +1535,6 @@
                       <span className="absolute left-full animate-loading-dots w-[1.5em] text-left"></span>
                     </div>
                   </div>
-                  {/* 所有人都看得到進度 */}
                   {genProgress && (
                     <div className="text-slate-600 font-bold text-sm md:text-base animate-fadeIn whitespace-pre-line text-center">
                        {genProgress}
@@ -1754,18 +1546,21 @@
                 </div>
               )}
 
-              {/* 頂部數字鍵盤：支援雙擊偵測 */}
-              <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto select-none">
-                 {cSizeDef.chars.map(c => {
+              {/* 頂部數字鍵盤：套用干擾洗牌邏輯與翻轉特效 */}
+              <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto select-none" style={{ perspective: '1000px' }}>
+                 {padOrder.map(c => {
                     const isCompleted = completedChars.has(c);
+                    const isFlipping = flippingKeys.includes(c);
                     return (
                         <button
                            key={c}
                            onClick={(e) => { onNumClick(e, c); }}
                            title={isCompleted ? `已經填滿 ${c}` : `點擊選取 ${c}`}
-                           className={`select-none w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 flex items-center justify-center shrink-0 transition-transform
-                           ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none active:translate-y-1' : 
-                             selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[2px_2px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none'}`}
+                           className={`select-none w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 flex items-center justify-center shrink-0 key-btn
+                           ${isFlipping ? 'key-flip' : ''}
+                           ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none' : 
+                             selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
+                           ${!isFlipping && !isCompleted ? 'active:translate-y-1 active:shadow-none' : ''}`}
                         >
                            {c}
                         </button>
@@ -1788,12 +1583,8 @@
                            {isHostRef.current && ( <button onClick={clearAllStrokes} className={`w-9 h-9 md:w-10 md:h-10 bg-red-500 hover:bg-red-600 text-white border-2 border-slate-800 rounded-full font-black text-lg transition-all flex items-center justify-center shadow-sm ml-1`} title="房主特權：清空所有人塗鴉">🚨</button> )}
                        </div>
                    )}
-                   {/* 模式切換按鈕 */}
                    <button 
-                       onPointerDown={handleModePointerDown}
-                       onPointerUp={handleModePointerUp}
-                       onPointerLeave={handleModePointerLeave}
-                       onContextMenu={(e) => e.preventDefault()}
+                       onClick={toggleInteractionMode}
                        title={`切換模式 (目前: ${modeTitles[interactionMode]})`} 
                        className={`w-10 h-10 md:w-12 md:h-12 border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none transition-all flex items-center justify-center ${interactionMode > 0 ? 'bg-[#ffcc00] text-slate-800' : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}
                    >
@@ -1824,12 +1615,6 @@
                           <stop offset="0%" className="rainbow-stop" />
                           <stop offset="100%" className="rainbow-stop" />
                       </linearGradient>
-                      {/* === 幽靈顯靈圓點 Pattern === */}
-                      {playersList.map(p => (
-                          <pattern key={`ghost-pat-${p.id}`} id={`ghost-pat-${p.id}`} x="0" y="0" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                              <circle cx="5" cy="5" r="2.5" fill={p.color === 'rainbow' ? 'url(#rainbowGrad)' : p.color} opacity="0.8" />
-                          </pattern>
-                      ))}
                     </defs>
 
                     {/* 1. 最底層：背景與高亮 */}
@@ -1849,16 +1634,23 @@
                             return (
                                 <g key={`bg-${cell.id}`}>
                                     <rect x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={fillColor} className="transition-colors duration-300 pointer-events-none" />
-                                    {/* === 幽靈顯靈網點特效 === */}
-                                    {isGhostRace && ghostInfo && !cell.isGiven && Object.entries(ghostInfo).map(([uid]) => (
-                                        <rect key={uid} x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={`url(#ghost-pat-${uid})`} className="pointer-events-none ghost-highlight" />
-                                    ))}
+                                    {/* === 幽靈對手進度：右上角方塊 === */}
+                                    {isGhostRace && ghostInfo && !cell.isGiven && !cell.isSystemRevealed && Object.entries(ghostInfo).map(([uid, color], idx) => {
+                                        const sqSize = 10;
+                                        const col = idx % 5;
+                                        const row = Math.floor(idx / 5);
+                                        const offsetX = col * (sqSize + 2);
+                                        const offsetY = row * (sqSize + 2);
+                                        return (
+                                            <rect key={uid} x={cell.x * CELL_SIZE + CELL_SIZE - sqSize - 2 - offsetX} y={cell.y * CELL_SIZE + 2 + offsetY} width={sqSize} height={sqSize} fill={color === 'rainbow' ? 'url(#rainbowGrad)' : color} opacity="0.8" rx="2" className="pointer-events-none ghost-highlight" />
+                                        );
+                                    })}
                                 </g>
                             );
                         })}
                     </g>
 
-                    {/* 2. 中層：塗鴉筆跡 (讓線條壓在背景上，但在格線與數字之下) */}
+                    {/* 2. 中層：塗鴉筆跡 */}
                     {strokes.map(s => {
                         const strokeUid = s.uid || s.id.split('-')[1]; const isOwnStroke = strokeUid === myId;
                         let strokeColor = s.color; let strokeOpacity = 1; let isRainbow = false;
@@ -1869,7 +1661,6 @@
 
                     {/* 3. 上層：網格線與文字 */}
                     <g transform={`translate(${PADDING}, ${PADDING})`}>
-                        {/* 網格線 */}
                         {Array.from({ length: cSizeDef.size + 1 }).map((_, i) => {
                             const isThickX = i % cSizeDef.boxW === 0; const isThickY = i % cSizeDef.boxH === 0;
                             return (
@@ -1887,13 +1678,17 @@
                             if (!cell.isGiven && cell.value && cell.owner) {
                                 valColor = getPlayerColor(cell.owner); if (valColor === 'rainbow') isRainbow = true;
                             }
+                            if (cell.isSystemRevealed) {
+                                valColor = "#1e293b"; 
+                                isRainbow = false;
+                            }
 
                             return (
                                 <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
                                     <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
 
                                     {cell.value ? (
-                                        <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
+                                        <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven || cell.isSystemRevealed ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
                                             {cell.value}
                                         </text>
                                     ) : (
@@ -1930,9 +1725,34 @@
                                 </g>
                             );
                         })}
+                        
+                        {/* 5. 炸彈與爆炸特效層 */}
+                        {bombs.map(b => {
+                            const cell = localCells.find(c => c.id === b.cellId);
+                            if (!cell) return null;
+                            const cx = cell.x * CELL_SIZE + CELL_SIZE / 2;
+                            const cy = cell.y * CELL_SIZE + CELL_SIZE / 2;
+                            const timeLeft = Math.max(1, Math.ceil((b.expireTime - nowTimer) / 1000));
+                            return (
+                                <g key={b.id} transform={`translate(${cx}, ${cy})`} onClick={(e) => { e.stopPropagation(); if (handleBombClickRef.current) handleBombClickRef.current(b.id); }}>
+                                    <circle r={CELL_SIZE * 0.4} fill="rgba(255, 255, 255, 0.85)" className="pointer-events-none" />
+                                    <text className="anim-bomb select-none" textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.5} y="-4">💣</text>
+                                    <text y={CELL_SIZE * 0.3} fill="#E3002B" fontSize={CELL_SIZE * 0.3} fontWeight="900" textAnchor="middle" className="select-none pointer-events-none">{timeLeft}</text>
+                                </g>
+                            );
+                        })}
+                        {explosions.map(ex => {
+                            const cell = localCells.find(c => c.id === ex.cellId);
+                            if (!cell) return null;
+                            const cx = cell.x * CELL_SIZE + CELL_SIZE / 2;
+                            const cy = cell.y * CELL_SIZE + CELL_SIZE / 2;
+                            return (
+                                <text key={ex.id} x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE} className="anim-explosion select-none pointer-events-none">💥</text>
+                            )
+                        })}
                     </g>
 
-                    {/* 4. 最頂層：游標與橡皮擦 */}
+                    {/* 6. 最頂層：游標與橡皮擦 */}
                     <circle ref={eraserRef} r="15" fill={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} fillOpacity="0.4" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeWidth="2" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke rainbow-fill' : ''}`} style={{ display: 'none' }} />
 
                     {!isGhostRace && Object.entries(cursors).map(entry => {
@@ -1976,8 +1796,10 @@
                             <p className="text-slate-600 mb-6 text-sm font-bold border-b-2 border-dashed border-slate-300 pb-4">完成時間：{endTime ? formatTime(Math.floor((endTime - startTime) / 1000)) : "00:00"}</p>
                         </div>
                     )}
-                    <div className="flex justify-center gap-3">
-                      <button onClick={triggerRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
+                    <div className="flex justify-center gap-3 flex-wrap">
+                      {(isHostRef.current || !isMultiplayer) && ( 
+                          <button onClick={triggerRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
+                      )}
                     </div>
                   </div>
                 </div>

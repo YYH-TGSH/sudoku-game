@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="數獨 ">
-  <title>數獨  -  Sudoku</title>
+  <meta name="apple-mobile-web-app-title" content="數獨">
+  <title>數獨 - Sudoku</title>
   
   <link rel="icon" href="icon.png" type="image/png" sizes="180x180">
   <link rel="apple-touch-icon" href="icon.png">
@@ -402,6 +402,10 @@
       const svgRef = useRef(null);
       const lastCursorSend = useRef(0);
       const isDrawingRef = useRef(false);
+      
+      const cellLongPressTimer = useRef(null);
+      const isLongPressTriggered = useRef(false);
+      const touchStartPt = useRef(null);
 
       const engineRef = useRef('none');
       const peerRef = useRef(null);
@@ -811,18 +815,14 @@
           e.stopPropagation();
           if (interactionMode >= 2 || matchPhase !== 'playing' || isSpectator) return;
           setBoardGifts(prev => {
-              return prev.map(g => {
-                  if (g.id === giftId) {
-                      const nextClicks = (g.clicks || 0) + 1;
-                      if (nextClicks >= 3) {
-                          triggerCounterAttack(g.senderUid);
-                          showToast("⚔️ 反擊成功！已將干擾送回對手！");
-                          return { ...g, expired: true };
-                      }
-                      return { ...g, clicks: nextClicks };
-                  }
-                  return g;
-              }).filter(g => !g.expired);
+              const gift = prev.find(g => g.id === giftId);
+              if (gift && !gift.expired) {
+                  // 一鍵直接觸發反擊
+                  triggerCounterAttack(gift.senderUid);
+                  showToast("⚔️ 拆開禮物！已將干擾送回對手！");
+                  return prev.filter(g => g.id !== giftId);
+              }
+              return prev;
           });
       };
 
@@ -921,7 +921,7 @@
               return;
           }
           setIsWon(false); setIsClosingModal(true); 
-          setTimeout(() => { setIsClosingModal(false); handleRegenerateRandom(); }, 300);
+          setTimeout(() => { setIsClosingModal(false); if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current(); }, 300);
       };
 
       const showToast = (m) => { setToastMsg(m); setTimeout(() => setToastMsg(""), 4000); };
@@ -955,14 +955,53 @@
           }
       };
 
+      const clearCell = (cellId) => {
+          if (isWon || interactionMode >= 2 || winner || matchPhase !== 'playing' || isSpectator) return;
+          const cur = stateRef.current.isGhostRace ? stateRef.current.localCells : stateRef.current.cells;
+          const targetIdx = cur.findIndex(c => c.id === cellId);
+          if (targetIdx === -1) return;
+          const target = cur[targetIdx];
+          
+          // 只有玩家自己填上的數字能被長按清除，題目或收禮系統填的不能清
+          if (target.isGiven || target.isSystemRevealed || target.value === null) return;
+          
+          if (engineRef.current === 'none') setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), cur]);
+          
+          const nextCells = [...cur];
+          nextCells[targetIdx] = { ...target, value: null, owner: null };
+          
+          if (stateRef.current.isGhostRace) {
+              syncState({ localCells: nextCells }, false);
+          } else {
+              syncState({ cells: nextCells });
+          }
+          showToast("🧽 已清除該格內容");
+      };
+
       const handlePointerDown = (e) => {
         if (matchPhase !== 'playing' || isSpectator) return;
         const pt = getSvgCoords(e.clientX, e.clientY); if (!pt) return;
+        
         if (interactionMode === 2) {
             e.target.setPointerCapture(e.pointerId);
             if (drawSubMode === 'pen') { isDrawingRef.current = true; currentPathDataRef.current = `M ${pt.x} ${pt.y}`; if (drawingPathRef.current) { drawingPathRef.current.setAttribute('d', currentPathDataRef.current); drawingPathRef.current.style.display = 'block'; } } else if (drawSubMode === 'eraser') eraseAtPoint(e.clientX, e.clientY);
         } else {
             setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: myId, x: pt.x, y: pt.y, timestamp: Date.now() }]);
+            
+            // 設定長按清除偵測
+            const cx = Math.floor((pt.x - PADDING) / CELL_SIZE);
+            const cy = Math.floor((pt.y - PADDING) / CELL_SIZE);
+            if (cx >= 0 && cx < cSizeDef.size && cy >= 0 && cy < cSizeDef.size) {
+                const cellId = `${cx}-${cy}`;
+                isLongPressTriggered.current = false;
+                touchStartPt.current = pt;
+                cellLongPressTimer.current = setTimeout(() => {
+                    clearCell(cellId);
+                    isLongPressTriggered.current = true;
+                    if (navigator.vibrate) navigator.vibrate(50);
+                    cellLongPressTimer.current = null;
+                }, 500); // 500毫秒視為長按
+            }
         }
         
         if (engineRef.current !== 'peerjs' || !showOtherCursors) return;
@@ -973,8 +1012,18 @@
       const handlePointerMove = (e) => {
         if (matchPhase !== 'playing' || isSpectator) return;
         const pt = getSvgCoords(e.clientX, e.clientY);
+        
         if (interactionMode === 2) {
             if (drawSubMode === 'eraser') { if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; } if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); } } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) { currentPathDataRef.current += ` L ${pt.x} ${pt.y}`; if (drawingPathRef.current) drawingPathRef.current.setAttribute('d', currentPathDataRef.current); }
+        } else {
+            // 防手震：如果移動超過10px就取消長按判定
+            if (cellLongPressTimer.current && touchStartPt.current && pt) {
+                const dist = Math.hypot(pt.x - touchStartPt.current.x, pt.y - touchStartPt.current.y);
+                if (dist > 10) {
+                    clearTimeout(cellLongPressTimer.current);
+                    cellLongPressTimer.current = null;
+                }
+            }
         }
         
         if (engineRef.current !== 'peerjs' || !showOtherCursors) return;
@@ -984,6 +1033,12 @@
 
       const handlePointerUp = (e) => {
         if (matchPhase !== 'playing' || isSpectator) return;
+        
+        if (cellLongPressTimer.current) {
+            clearTimeout(cellLongPressTimer.current);
+            cellLongPressTimer.current = null;
+        }
+
         if (interactionMode === 2) {
             if (drawSubMode === 'pen' && isDrawingRef.current) { isDrawingRef.current = false; if (currentPathDataRef.current) { syncState({ strokes: [...stateRef.current.strokes, { id: Date.now() + '-' + myId, uid: myId, path: currentPathDataRef.current }] }); currentPathDataRef.current = ""; if (drawingPathRef.current) drawingPathRef.current.style.display = 'none'; } }
             if (e.type === 'pointerleave' || e.type === 'pointercancel' || e.pointerType === 'touch') if (eraserRef.current) eraserRef.current.style.display = 'none';
@@ -1231,6 +1286,7 @@
       };
 
       const handleCellClick = (cellId) => {
+        if (isLongPressTriggered.current) return; // 防長按後觸發點擊
         if (isWon || interactionMode >= 2 || winner || matchPhase !== 'playing' || isSpectator) return;
         const cur = isGhostRace ? localCells : cells;
         const targetIdx = cur.findIndex(c => c.id === cellId);
@@ -1535,7 +1591,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5.2)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5.4)</div>
           </div>
         );
       }
@@ -1665,7 +1721,7 @@
                            <li>選擇上方數字點擊方格。若不選上方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
                            <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
                            <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
-                           <li>嚴謹出題：保證只有唯一解。支援鍵盤快速切換。</li>
+                           <li>長按清除：若填錯數字且上方按鍵已被鎖定（反灰），可長按該格 0.5 秒強制清除。</li>
                         </ol>
                      </div>
                   </div>
@@ -1988,20 +2044,21 @@
                                 if (!cell) return null;
                                 const cx = cell.x * CELL_SIZE;
                                 const cy = cell.y * CELL_SIZE;
-                                // 依據點擊次數稍微放大作為回饋
-                                const scale = 1 + (gift.clicks * 0.15); 
+                                const scale = 1 + ((gift.clicks || 0) * 0.15); 
                                 return (
                                     <g key={`gift-${gift.id}`} 
                                        transform={`translate(${cx}, ${cy})`} 
                                        onPointerDown={(e) => handleGiftClick(e, gift.id)} 
                                        className="cursor-pointer"
                                     >
-                                        <rect width={CELL_SIZE} height={CELL_SIZE} fill="rgba(255, 255, 255, 0.85)" className="pointer-events-none" />
-                                        <g transform={`translate(${CELL_SIZE/2}, ${CELL_SIZE/2}) scale(${scale})`}>
-                                            <text y="4" textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.55} className="select-none pointer-events-auto transition-transform duration-75">
-                                                🎁
-                                            </text>
-                                        </g>
+                                        {/* 修正：移除 pointer-events-none 改為 pointer-events-auto 確保能接收點擊 */}
+                                        <rect width={CELL_SIZE} height={CELL_SIZE} fill="#fef08a" stroke="#ca8a04" strokeWidth="3" rx="8" className="pointer-events-auto hover:brightness-95 transition-all" />
+                                        <text x={CELL_SIZE/2} y={CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight="900" fill="#1e293b" className="select-none pointer-events-none">
+                                            {cell.value}
+                                        </text>
+                                        <text x={CELL_SIZE - 12} y="14" textAnchor="middle" dominantBaseline="central" fontSize="16" className="select-none pointer-events-none transition-transform duration-75">
+                                            🎁
+                                        </text>
                                     </g>
                                 );
                             })}

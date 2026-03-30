@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="數獨 - 大亂鬥">
-  <title>數獨 Master - 平行宇宙競速版</title>
+  <meta name="apple-mobile-web-app-title" content="數獨 - Sudoku">
+  <title>數獨 - Sudoku</title>
   
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23ffcc00%22 rx=%2220%22/><text y=%2272%22 x=%2216%22 font-size=%2265%22>⚡</text></svg>">
+  <link rel="icon" href="icon.png">
   
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -44,14 +44,18 @@
     @keyframes dotAnim { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } 100% { content: ''; } }
     .animate-loading-dots::after { content: ''; animation: dotAnim 1.5s infinite; }
 
-    @keyframes ghostPulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 0.9; } }
-    .ghost-highlight { animation: ghostPulse 2s ease-in-out infinite; }
-
-    @keyframes bombWiggle { 0%, 100% { transform: rotate(-5deg) scale(1); } 50% { transform: rotate(5deg) scale(1.15); filter: drop-shadow(0 0 5px rgba(255,0,0,0.4)); } }
-    .anim-bomb { animation: bombWiggle 0.4s ease-in-out infinite; cursor: pointer; pointer-events: auto; }
+    @keyframes ghostPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+    .ghost-highlight { animation: ghostPulse 1.5s ease-in-out infinite; }
     
-    @keyframes explosionFade { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(3); opacity: 0; } }
-    .anim-explosion { animation: explosionFade 0.6s ease-out forwards; pointer-events: none; }
+    /* 按鍵翻轉對調動畫 */
+    @keyframes keyFlip {
+        0% { transform: perspective(400px) rotateY(0); }
+        50% { transform: perspective(400px) rotateY(90deg); background-color: #ef4444; color: white; opacity: 0.8; }
+        100% { transform: perspective(400px) rotateY(0); }
+    }
+    .anim-key-flip {
+        animation: keyFlip 0.6s ease-in-out forwards;
+    }
 
     @keyframes rainbowStopAnim {
       0%{stop-color:#E3002B;} 5%{stop-color:#F35B00;} 10%{stop-color:#FFC90E;} 15%{stop-color:#D7157A;} 20%{stop-color:#E895C0;} 25%{stop-color:#007A61;} 30%{stop-color:#87D300;} 35%{stop-color:#C4D600;} 40%{stop-color:#8DD1BF;} 45%{stop-color:#616130;} 50%{stop-color:#00538A;} 55%{stop-color:#008CC1;} 60%{stop-color:#00C1D5;} 65%{stop-color:#79C8ED;} 70%{stop-color:#CDBB79;} 75%{stop-color:#41136A;} 80%{stop-color:#935CB9;} 85%{stop-color:#BCA8D1;} 90%{stop-color:#7A0026;} 95%{stop-color:#BC7B70;} 100%{stop-color:#E3002B;}
@@ -61,7 +65,6 @@
     .rainbow-fill { fill: url(#rainbowGrad) !important; }
 
     .key-btn { transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, box-shadow 0.2s; backface-visibility: hidden; }
-    .key-flip { transform: rotateY(90deg) scale(0.85); opacity: 0.3; }
 
     .custom-scrollbar::-webkit-scrollbar { width: 12px; height: 12px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-left: 2px solid #1e293b; border-top: 2px solid #1e293b; }
@@ -326,6 +329,8 @@
       const [matchPhase, setMatchPhase] = useState('playing'); // 'waiting', 'countdown', 'playing', 'finished'
       const [countdownTarget, setCountdownTarget] = useState(null);
       const [countdownNum, setCountdownNum] = useState(null);
+      
+      const [isSpectator, setIsSpectator] = useState(false);
 
       const [strokes, setStrokes] = useState([]);
       const [history, setHistory] = useState([]);
@@ -346,16 +351,13 @@
       const [drawSubMode, setDrawSubMode] = useState('pen');
       const [selectedChar, setSelectedChar] = useState(null); 
       
-      // 炸彈與反擊系統相關狀態
-      const [padOrder, setPadOrder] = useState(SIZES[1].chars);
-      const [flippingKeys, setFlippingKeys] = useState([]);
-      const scrambledCharsRef = useRef(new Set()); 
-      
-      const [bombs, setBombs] = useState([]);
-      const bombsRef = useRef([]);
-      const [explosions, setExplosions] = useState([]);
+      // 禮物與反擊機制 (盤面直接覆蓋)
+      const [boardGifts, setBoardGifts] = useState([]);
+      const [keyMapping, setKeyMapping] = useState(initialDataRef.current.sizeDef.chars);
+      const [flippedKeys, setFlippedKeys] = useState([]); // 用於紀錄觸發翻轉動畫的按鍵 index
+
+      const processedEventsRef = useRef(new Set());
       const completedRegionsRef = useRef(new Set());
-      const [nowTimer, setNowTimer] = useState(Date.now());
 
       const modeIcons = ['🖋️', '✏️', '🖌️'];
       const modeTitles = ['填答模式', '草稿模式', '畫筆作記號'];
@@ -378,7 +380,7 @@
       const [stableMode, setStableMode] = useState(false); 
       const [titleClicks, setTitleClicks] = useState(0);
       
-      const [playersList, setPlayersList] = useState([{ id: myId, name: "單機玩家", isHost: true, color: COLORS[11], isReady: false }]);
+      const [playersList, setPlayersList] = useState([{ id: myId, name: "單機玩家", isHost: true, color: COLORS[11], isReady: false, isSpectator: false }]);
       const [isConnecting, setIsConnecting] = useState(false);
 
       const [showOtherCursors, setShowOtherCursors] = useState(true);
@@ -398,7 +400,7 @@
       const unsubRef = useRef(null);
       const zoomContainerRef = useRef(null);
       const lastPinchDist = useRef(null);
-      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null });
+      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: [] });
       
       const playersListRef = useRef([]);
 
@@ -414,16 +416,23 @@
       const PADDING = 20;
       const svgW = cSizeDef.size * CELL_SIZE + PADDING * 2;
       const svgH = cSizeDef.size * CELL_SIZE + PADDING * 2;
+      const MAX_SAFE_DIMENSION = 4000;
 
       const activeCells = isGhostRace ? localCells : cells;
 
       useEffect(() => { playersListRef.current = playersList; }, [playersList]);
 
+      // 定期清理過期的盤面禮物
       useEffect(() => {
-          if (bombs.length === 0) return;
-          const t = setInterval(() => setNowTimer(Date.now()), 200);
+          const t = setInterval(() => {
+              const now = Date.now();
+              setBoardGifts(prev => {
+                  const next = prev.filter(g => g.expireTime > now);
+                  return next.length !== prev.length ? next : prev;
+              });
+          }, 500);
           return () => clearInterval(t);
-      }, [bombs.length]);
+      }, []);
 
       useEffect(() => {
         if (matchPhase === 'countdown' && countdownTarget) {
@@ -453,8 +462,8 @@
       useEffect(() => {
           if (!isHostRef.current && isMultiplayer) return;
           if (matchPhase === 'waiting' && playersList.length > 0) {
-              const allReady = playersList.every(p => p.isReady);
-              if (allReady) {
+              const allReady = playersList.filter(p => !p.isSpectator).every(p => p.isReady);
+              if (allReady && playersList.filter(p => !p.isSpectator).length > 0) {
                   const target = Date.now() + 5000;
                   syncState({ matchPhase: 'countdown', countdownTarget: target }, true);
               }
@@ -463,12 +472,10 @@
 
       useEffect(() => {
           setGhostHints({});
-          bombsRef.current = [];
-          setBombs([]);
           completedRegionsRef.current.clear();
-          scrambledCharsRef.current.clear();
-          setPadOrder(cSizeDef.chars);
-      }, [startTime, cSizeDef.chars]);
+          setBoardGifts([]);
+          processedEventsRef.current.clear();
+      }, [startTime]);
 
       const completedChars = useMemo(() => {
           const counts = {};
@@ -481,19 +488,20 @@
       useEffect(() => { if (selectedChar && completedChars.has(selectedChar)) setSelectedChar(null); }, [completedChars, selectedChar]);
 
       useEffect(() => {
-          if (screen !== 'game') return;
+          if (screen !== 'game' || isSpectator) return;
           const handleKeyDown = (e) => {
               if (interactionMode >= 2 || isAutoFillingRef.current || matchPhase !== 'playing') return;
               const key = e.key.toUpperCase();
-              const originalIndex = cSizeDef.chars.indexOf(key);
-              if (originalIndex !== -1) {
-                  const actualChar = padOrder[originalIndex];
-                  if (actualChar && !completedChars.has(actualChar)) setSelectedChar(prev => prev === actualChar ? null : actualChar);
+              const origIdx = cSizeDef.chars.indexOf(key);
+              if (origIdx !== -1) {
+                  // 根據實體鍵盤對應的「原始位置」，找出目前該位置被映射成了什麼數字
+                  const mappedKey = keyMapping[origIdx];
+                  if (!completedChars.has(mappedKey)) setSelectedChar(prev => prev === mappedKey ? null : mappedKey);
               } else if (e.key === 'q' || e.key === 'Q') toggleInteractionMode();
           };
           window.addEventListener('keydown', handleKeyDown);
           return () => window.removeEventListener('keydown', handleKeyDown);
-      }, [screen, cSizeDef.chars, padOrder, interactionMode, completedChars, matchPhase]);
+      }, [screen, cSizeDef.chars, interactionMode, completedChars, matchPhase, isSpectator, keyMapping]);
 
       const getPlayerColor = (uid) => { const p = playersList.find(p => p.id === uid); return p ? p.color : COLORS[11]; }; 
       
@@ -515,7 +523,7 @@
         initAuth(); onAuthStateChanged(auth, function(u) { if(u) setUser(u); });
       }, []);
 
-      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget]);
+      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget, keyMapping }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget, keyMapping]);
 
       const conflictCellIds = useMemo(() => {
         const conflicts = new Set();
@@ -543,8 +551,9 @@
         return conflicts;
       }, [activeCells, cSizeDef]);
 
+      // 區域完成判斷與禮物發送
       useEffect(() => {
-          if (!isGhostRace || isGenerating || !localCells.length) return;
+          if (!isGhostRace || isGenerating || !localCells.length || isSpectator || matchPhase !== 'playing') return;
           const solution = solutionGridRef.current;
           if (!solution) return;
           
@@ -587,14 +596,59 @@
           });
 
           if (newComps > 0) {
-              const msg = { type: 'REGION_COMPLETE', uid: myId, count: newComps * 2 };
-              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
-              else if (connRef.current) connRef.current.send(msg);
+              // 每次完成區域送出 1 個禮物，尋找進度最慢的玩家
+              for (let k = 0; k < newComps; k++) {
+                  const solvedCounts = {};
+                  playersListRef.current.forEach(p => { if(!p.isSpectator) solvedCounts[p.id] = 0; });
+                  Object.values(ghostHints).forEach(cellHints => {
+                      Object.keys(cellHints).forEach(uid => {
+                          if (solvedCounts[uid] !== undefined) solvedCounts[uid]++;
+                      });
+                  });
+                  // 確保自己的進度即時準確
+                  const myAccurateCount = localCells.filter(c => !c.isGiven && c.value !== null && !conflictCellIds.has(c.id)).length;
+                  if (solvedCounts[myId] !== undefined) solvedCounts[myId] = Math.max(solvedCounts[myId], myAccurateCount);
+
+                  let minScore = Infinity;
+                  let candidates = [];
+                  const activePlayerCount = Object.keys(solvedCounts).length;
+                  for (let uid in solvedCounts) {
+                      if (activePlayerCount > 1 && uid === myId) continue; // 多人模式不把禮物送給自己
+
+                      if (solvedCounts[uid] < minScore) {
+                          minScore = solvedCounts[uid];
+                          candidates = [uid];
+                      } else if (solvedCounts[uid] === minScore) {
+                          candidates.push(uid);
+                      }
+                  }
+                  
+                  let targetUid = myId;
+                  if (candidates.length > 0) {
+                      targetUid = candidates[Math.floor(Math.random() * candidates.length)];
+                  }
+
+                  const gid = Math.random().toString(36).substring(2, 10);
+                  const msg = { type: 'RECEIVE_GIFT', targetUid, senderUid: myId, id: gid, timestamp: Date.now() };
+                  
+                  if (engineRef.current === 'peerjs') {
+                      if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
+                      else if (connRef.current) connRef.current.send(msg);
+                  } else if (engineRef.current === 'firebase' && roomRef.current) {
+                      const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
+                      safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
+                      updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
+                  }
+                  
+                  if (targetUid === myId) {
+                      if (handleReceiveGiftRef.current) handleReceiveGiftRef.current(msg);
+                  }
+              }
           }
-      }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars]);
+      }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars, ghostHints, isSpectator, matchPhase, conflictCellIds]);
 
       useEffect(() => {
-          if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing') return;
+          if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing' || isSpectator) return;
           const isFull = activeCells.every(c => c.value !== null);
           const hasNoConflicts = conflictCellIds.size === 0;
           
@@ -614,14 +668,14 @@
           } else {
               if (isWon) { setIsWon(false); setEndTime(null); setMatchPhase('playing'); }
           }
-      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId, matchPhase]);
+      }, [activeCells, conflictCellIds.size, isWon, isGenerating, isGhostRace, winner, matchStartTime, startTime, playersList, myId, matchPhase, isSpectator]);
 
       // 觸控縮放
       useEffect(function() {
         if (screen !== 'game') return; const el = zoomContainerRef.current; if (!el) return; let touchStartY = null;
         const handleTouchStart = (e) => { if (e.touches.length === 1) touchStartY = e.touches[0].clientY; };
         const handleTouchMove = (e) => {
-          if (interactionMode >= 2) return; 
+          if (interactionMode >= 2 || isSpectator) return; 
           if (e.touches.length === 2) {
             e.preventDefault(); const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
             if (lastPinchDist.current) {
@@ -636,10 +690,10 @@
           }
         };
         const handleTouchEnd = () => { lastPinchDist.current = null; touchStartY = null; if (zoomLevel !== zoomLevelRef.current) setZoomLevel(zoomLevelRef.current); };
-        const handleWheel = (e) => { if (interactionMode >= 2) return; if (Math.abs(e.deltaY) > 10 && !isHeaderCollapsed) setIsHeaderCollapsed(true); if (e.ctrlKey && zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; } };
+        const handleWheel = (e) => { if (interactionMode >= 2 || isSpectator) return; if (Math.abs(e.deltaY) > 10 && !isHeaderCollapsed) setIsHeaderCollapsed(true); if (e.ctrlKey && zoomModeIdxRef.current !== 0) { setZoomModeIdx(0); zoomModeIdxRef.current = 0; } };
         el.addEventListener('touchstart', handleTouchStart, { passive: true }); el.addEventListener('touchmove', handleTouchMove, { passive: false }); el.addEventListener('touchend', handleTouchEnd); el.addEventListener('touchcancel', handleTouchEnd); el.addEventListener('wheel', handleWheel, { passive: true });
         return () => { el.removeEventListener('touchstart', handleTouchStart); el.removeEventListener('touchmove', handleTouchMove); el.removeEventListener('touchend', handleTouchEnd); el.removeEventListener('touchcancel', handleTouchEnd); el.removeEventListener('wheel', handleWheel); };
-      }, [screen, isHeaderCollapsed, interactionMode, svgW, svgH, zoomLevel]);
+      }, [screen, isHeaderCollapsed, interactionMode, svgW, svgH, zoomLevel, isSpectator]);
 
       useEffect(function() {
         if (ripples.length === 0) return;
@@ -681,92 +735,78 @@
           else if (connRef.current) connRef.current.send(msg);
       };
 
-      const processBombTimeoutRef = useRef();
-      processBombTimeoutRef.current = (bombId) => {
-          const currentBombs = bombsRef.current;
-          if (currentBombs.some(b => b.id === bombId)) {
-              bombsRef.current = currentBombs.filter(b => b.id !== bombId);
-              setBombs([...bombsRef.current]);
-              
-              const targetBomb = currentBombs.find(b => b.id === bombId);
-              if (targetBomb) {
-                  setExplosions(prev => [...prev, { id: Math.random(), cellId: targetBomb.cellId }]);
-                  setTimeout(() => setExplosions(prev => prev.slice(1)), 1000);
-                  revealSystemCellRef.current(targetBomb.cellId);
-              }
-          }
-      };
-
-      const spawnBombsRef = useRef();
-      spawnBombsRef.current = (attackerUid, count) => {
+      const handleReceiveGiftRef = useRef();
+      handleReceiveGiftRef.current = (ev) => {
+          if (isSpectator) return;
           const cells = stateRef.current.localCells; 
-          const bombCellIds = new Set(bombsRef.current.map(b => b.cellId));
+          const validCells = cells.filter(c => !c.isGiven && !c.isSystemRevealed);
+          if (validCells.length === 0) return;
+
+          // 完全隨機挑選 (不限空白、草稿或已填答)
+          const targetCell = validCells[Math.floor(Math.random() * validCells.length)];
           
-          let candidates = cells.filter(c => !c.isGiven && !c.isSystemRevealed && !bombCellIds.has(c.id));
-          let p1 = candidates.filter(c => c.value === null && c.drafts.length === 0);
-          let p2 = candidates.filter(c => c.value === null && c.drafts.length > 0);
-          let p3 = candidates.filter(c => c.value !== null);
+          revealSystemCellRef.current(targetCell.id); // 直接揭曉底下的正確答案並鎖定
           
-          const shuffle = arr => arr.sort(() => Math.random() - 0.5);
-          const pool = [...shuffle(p1), ...shuffle(p2), ...shuffle(p3)];
-          
-          const targets = pool.slice(0, count);
-          targets.forEach(t => {
-              const bId = Math.random().toString(36).substring(2, 10);
-              const newBomb = { id: bId, cellId: t.id, attackerUid, clicks: 0, expireTime: Date.now() + 5000 };
-              bombsRef.current.push(newBomb);
-              setTimeout(() => { if (processBombTimeoutRef.current) processBombTimeoutRef.current(bId); }, 5000);
-          });
-          setBombs([...bombsRef.current]);
+          setBoardGifts(prev => [...prev, {
+              id: ev.id,
+              cellId: targetCell.id,
+              senderUid: ev.senderUid || 'system',
+              expireTime: Date.now() + 5000,
+              clicks: 0
+          }]);
       };
 
-      const handleBombClickRef = useRef();
-      handleBombClickRef.current = (bombId) => {
-          const idx = bombsRef.current.findIndex(b => b.id === bombId);
-          if (idx === -1) return;
-          const b = bombsRef.current[idx];
-          b.clicks += 1;
-          if (b.clicks >= 3) {
-              bombsRef.current = bombsRef.current.filter(x => x.id !== bombId);
-              setBombs([...bombsRef.current]);
-              revealSystemCellRef.current(b.cellId);
-              
-              const msg = { type: 'COUNTER_ATTACK', targetUid: b.attackerUid };
-              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
+      const triggerCounterAttack = (targetUid) => {
+          const msg = { type: 'GIFT_COUNTER_ATTACK', targetUid, id: Math.random().toString(36).substring(2, 10), timestamp: Date.now() };
+          if (engineRef.current === 'peerjs') {
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg));
               else if (connRef.current) connRef.current.send(msg);
-          } else {
-              setBombs([...bombsRef.current]);
+          } else if (engineRef.current === 'firebase' && roomRef.current) {
+              const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
+              safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
+              updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
           }
       };
 
-      const handleCounterAttackRef = useRef();
-      handleCounterAttackRef.current = () => {
-          setPadOrder(prev => {
-              const arr = [...prev];
-              let idx1 = Math.floor(Math.random() * arr.length);
-              let idx2 = Math.floor(Math.random() * arr.length);
-              while(idx1 === idx2) idx2 = Math.floor(Math.random() * arr.length);
-              const c1 = arr[idx1];
-              const c2 = arr[idx2];
-              
-              setFlippingKeys(fk => [...fk, c1, c2]);
-              showToast("⚠️ 遭到反擊！數字按鍵位置已混亂對調！");
-              
-              setTimeout(() => {
-                  setPadOrder(currentOrder => {
-                      const next = [...currentOrder];
-                      const i1 = next.indexOf(c1);
-                      const i2 = next.indexOf(c2);
-                      if(i1 !== -1 && i2 !== -1) { [next[i1], next[i2]] = [next[i2], next[i1]]; }
-                      return next;
-                  });
-                  scrambledCharsRef.current.add(c1);
-                  scrambledCharsRef.current.add(c2);
+      const handleReceiveCounterAttackRef = useRef();
+      handleReceiveCounterAttackRef.current = () => {
+          if (isSpectator) return;
+          showToast("💥 遭到反擊！數字按鍵順序大亂！");
+          setKeyMapping(prev => {
+              const newMap = [...prev];
+              if (newMap.length >= 2) {
+                  let idx1 = Math.floor(Math.random() * newMap.length);
+                  let idx2 = Math.floor(Math.random() * newMap.length);
+                  while (idx1 === idx2) idx2 = Math.floor(Math.random() * newMap.length);
+                  const temp = newMap[idx1];
+                  newMap[idx1] = newMap[idx2];
+                  newMap[idx2] = temp;
                   
-                  setTimeout(() => { setFlippingKeys(fk => fk.filter(k => k !== c1 && k !== c2)); }, 50);
-              }, 250);
-              
-              return prev; 
+                  // 觸發翻轉動畫
+                  setFlippedKeys([idx1, idx2]);
+                  setTimeout(() => setFlippedKeys([]), 600);
+              }
+              syncState({ keyMapping: newMap }, false);
+              return newMap;
+          });
+      };
+
+      const handleGiftClick = (e, giftId) => {
+          e.stopPropagation();
+          if (interactionMode >= 2 || matchPhase !== 'playing' || isSpectator) return;
+          setBoardGifts(prev => {
+              return prev.map(g => {
+                  if (g.id === giftId) {
+                      const nextClicks = (g.clicks || 0) + 1;
+                      if (nextClicks >= 3) {
+                          triggerCounterAttack(g.senderUid);
+                          showToast("⚔️ 反擊成功！已將干擾送回對手！");
+                          return { ...g, expired: true };
+                      }
+                      return { ...g, clicks: nextClicks };
+                  }
+                  return g;
+              }).filter(g => !g.expired);
           });
       };
 
@@ -780,11 +820,12 @@
 
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
-              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); }
+              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); }
           }
           
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
           if (partial.winner !== undefined) setWinner(partial.winner);
+          if (partial.keyMapping !== undefined) setKeyMapping(partial.keyMapping);
           
           if (partial.solutionGrid !== undefined) {
               const parsedGrid = typeof partial.solutionGrid === 'string' ? JSON.parse(partial.solutionGrid) : partial.solutionGrid;
@@ -794,7 +835,6 @@
           
           if (partial.sizeId !== undefined) {
               setSizeId(partial.sizeId);
-              setPadOrder(SIZES.find(s => s.id === partial.sizeId).chars);
           }
           if (partial.diffId !== undefined) setDiffId(partial.diffId);
           if (partial.strokes !== undefined) setStrokes(partial.strokes);
@@ -816,7 +856,9 @@
                   diffId: updatedState.diffId,
                   strokes: updatedState.strokes,
                   matchPhase: updatedState.matchPhase,
-                  countdownTarget: updatedState.countdownTarget
+                  countdownTarget: updatedState.countdownTarget,
+                  giftEvents: updatedState.giftEvents,
+                  keyMapping: updatedState.keyMapping
               };
 
               if (!updatedState.isGhostRace) {
@@ -898,7 +940,7 @@
       };
 
       const handlePointerDown = (e) => {
-        if (matchPhase !== 'playing') return;
+        if (matchPhase !== 'playing' || isSpectator) return;
         const pt = getSvgCoords(e.clientX, e.clientY); if (!pt) return;
         if (interactionMode === 2) {
             e.target.setPointerCapture(e.pointerId);
@@ -913,7 +955,7 @@
       };
 
       const handlePointerMove = (e) => {
-        if (matchPhase !== 'playing') return;
+        if (matchPhase !== 'playing' || isSpectator) return;
         const pt = getSvgCoords(e.clientX, e.clientY);
         if (interactionMode === 2) {
             if (drawSubMode === 'eraser') { if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; } if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); } } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) { currentPathDataRef.current += ` L ${pt.x} ${pt.y}`; if (drawingPathRef.current) drawingPathRef.current.setAttribute('d', currentPathDataRef.current); }
@@ -925,7 +967,7 @@
       };
 
       const handlePointerUp = (e) => {
-        if (matchPhase !== 'playing') return;
+        if (matchPhase !== 'playing' || isSpectator) return;
         if (interactionMode === 2) {
             if (drawSubMode === 'pen' && isDrawingRef.current) { isDrawingRef.current = false; if (currentPathDataRef.current) { syncState({ strokes: [...stateRef.current.strokes, { id: Date.now() + '-' + myId, uid: myId, path: currentPathDataRef.current }] }); currentPathDataRef.current = ""; if (drawingPathRef.current) drawingPathRef.current.style.display = 'none'; } }
             if (e.type === 'pointerleave' || e.type === 'pointercancel' || e.pointerType === 'touch') if (eraserRef.current) eraserRef.current.style.display = 'none';
@@ -1057,7 +1099,7 @@
 
       const clickTracker = useRef({ char: null, count: 0, time: 0 });
       const onNumClick = (e, c) => {
-          e.preventDefault(); if (isAutoFillingRef.current || winner || matchPhase !== 'playing') return; 
+          e.preventDefault(); if (isAutoFillingRef.current || winner || matchPhase !== 'playing' || isSpectator) return; 
           const now = Date.now(); const tracker = clickTracker.current;
           if (tracker.char === c && now - tracker.time < 400) { tracker.count += 1; } else { tracker.char = c; tracker.count = 1; }
           tracker.time = now; const isCompleted = completedChars.has(c);
@@ -1085,12 +1127,12 @@
       };
 
       const modeLongPressTimer = useRef(null);
-      const handleModePointerDown = (e) => { if (isAutoFillingRef.current || matchPhase !== 'playing') return; if (interactionMode === 1) { modeLongPressTimer.current = setTimeout(() => { handleClearAllDrafts(); modeLongPressTimer.current = null; if (navigator.vibrate) navigator.vibrate(50); }, 600); } };
-      const handleModePointerUp = (e) => { if (isAutoFillingRef.current || matchPhase !== 'playing') return; if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; toggleInteractionMode(); } else if (interactionMode !== 1) { toggleInteractionMode(); } };
+      const handleModePointerDown = (e) => { if (isAutoFillingRef.current || matchPhase !== 'playing' || isSpectator) return; if (interactionMode === 1) { modeLongPressTimer.current = setTimeout(() => { handleClearAllDrafts(); modeLongPressTimer.current = null; if (navigator.vibrate) navigator.vibrate(50); }, 600); } };
+      const handleModePointerUp = (e) => { if (isAutoFillingRef.current || matchPhase !== 'playing' || isSpectator) return; if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; toggleInteractionMode(); } else if (interactionMode !== 1) { toggleInteractionMode(); } };
       const handleModePointerLeave = () => { if (modeLongPressTimer.current) { clearTimeout(modeLongPressTimer.current); modeLongPressTimer.current = null; } };
 
       const toggleInteractionMode = () => {
-        if (isAutoFillingRef.current || matchPhase !== 'playing') return;
+        if (isAutoFillingRef.current || matchPhase !== 'playing' || isSpectator) return;
         const nextMode = (interactionMode + 1) % (engineRef.current === 'peerjs' ? 3 : 2);
         if(isGhostRace && nextMode === 2) return; 
         setInteractionMode(nextMode); showToast(`${modeIcons[nextMode]} 已切換為 ${modeTitles[nextMode]}`);
@@ -1142,7 +1184,7 @@
       
       const handleQuickPaste = async () => {
         try { if (navigator.clipboard && navigator.clipboard.readText) { const text = await navigator.clipboard.readText(); if(text) { setSaveCode(text); showToast("✅ 貼上成功！"); } } else throw new Error(); } 
-        catch (err) { const ta = document.getElementById("saveCodeTextarea"); if (ta) ta.focus(); showToast("⚠️ 請手動貼上"); }
+        catch (err) { const ta = document.getElementById("saveCodeTextarea"); if (ta) ta.focus(); showToast("⚠️ 請手手動貼上"); }
       };
       
       const handleLoadCode = () => {
@@ -1155,9 +1197,10 @@
         } catch(e) { showToast("⚠️ 讀檔失敗！"); }
       };
 
-      const handleZoomIn = () => { let nz = Math.min(zoomLevelRef.current + 0.3, 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
-      const handleZoomOut = () => { let nz = Math.max(zoomLevelRef.current - 0.3, 0.4); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
+      const handleZoomIn = () => { if (isSpectator) return; let nz = Math.min(zoomLevelRef.current + 0.3, 3.5); if (svgW * nz > MAX_SAFE_DIMENSION || svgH * nz > MAX_SAFE_DIMENSION) nz = Math.min(MAX_SAFE_DIMENSION / svgW, MAX_SAFE_DIMENSION / svgH); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
+      const handleZoomOut = () => { if (isSpectator) return; let nz = Math.max(zoomLevelRef.current - 0.3, 0.4); zoomLevelRef.current = nz; setZoomLevel(nz); setZoomModeIdx(0); zoomModeIdxRef.current = 0; if (svgRef.current) { svgRef.current.style.width = `${svgW * nz}px`; svgRef.current.style.height = `${svgH * nz}px`; } };
       const handleCycleZoom = () => {
+        if (isSpectator) return;
         const ni = (zoomModeIdxRef.current + 1) % 4; setZoomModeIdx(ni); zoomModeIdxRef.current = ni;
         const c = zoomContainerRef.current; if (!c) return; const pf = 0.95; const cw = c.clientWidth; const ch = c.clientHeight;
         let nz = 1; if (ni === 0) nz = 1; else if (ni === 1) nz = (cw / svgW) * pf; else if (ni === 2) nz = (ch / svgH) * pf; else nz = Math.min(cw / svgW, ch / svgH) * pf;
@@ -1166,27 +1209,24 @@
       };
 
       const handleCellClick = (cellId) => {
-        if (isWon || interactionMode >= 2 || winner || matchPhase !== 'playing') return;
+        if (isWon || interactionMode >= 2 || winner || matchPhase !== 'playing' || isSpectator) return;
         const cur = isGhostRace ? localCells : cells;
         const targetIdx = cur.findIndex(c => c.id === cellId);
         if (targetIdx === -1) return; const target = cur[targetIdx];
         
+        // 判斷按鍵是否已經被反擊打亂
+        const isScrambled = keyMapping.join('') !== cSizeDef.chars.join('');
+
         if (selectedChar === null) { 
             if (target.value !== null) {
-                if (isGhostRace && scrambledCharsRef.current.has(target.value)) {
-                    showToast("⚠️ 這個數字的按鍵已被打亂，無法使用智慧吸取！");
-                    return;
-                }
+                if (isScrambled) { showToast("⚠️ 按鍵混亂中，無法從盤面吸取數字！"); return; }
                 setSelectedChar(target.value); 
             }
             return; 
         }
         
         if (target.isGiven || target.isSystemRevealed) { 
-            if (isGhostRace && target.value !== selectedChar && scrambledCharsRef.current.has(target.value)) {
-                showToast("⚠️ 這個數字的按鍵已被打亂，無法使用智慧吸取！");
-                return;
-            }
+            if (isScrambled) { showToast("⚠️ 按鍵混亂中，無法從盤面吸取數字！"); return; }
             setSelectedChar(prev => prev === target.value ? null : target.value); 
             return; 
         }
@@ -1231,29 +1271,31 @@
       };
 
       const handleReset = () => {
-        if (isAutoFillingRef.current || matchPhase !== 'playing') return;
+        if (isAutoFillingRef.current || matchPhase !== 'playing' || isSpectator) return;
         const currentActive = isGhostRace ? localCells : cells;
         const resetCells = currentActive.map(c => ({ ...c, value: c.isGiven ? c.value : null, drafts: [], owner: null, isSystemRevealed: false }));
-        syncState({ cells: resetCells, localCells: resetCells, strokes: [], startTime: Date.now() }, !isGhostRace);
+        syncState({ cells: resetCells, localCells: resetCells, strokes: [], startTime: Date.now(), keyMapping: cSizeDef.chars }, !isGhostRace);
         if (engineRef.current === 'none') setHistory([]);
         setIsWon(false); setEndTime(null); setSelectedChar(null);
       };
 
       const generateAndSync = (sId, dId, ghostMode) => {
         if (isAutoFillingRef.current) return;
-        setIsGenerating(true); setWinner(null); isWinnerDeclaredRef.current = false; setGhostHints({}); setPadOrder(SIZES.find(s => s.id === sId).chars); scrambledCharsRef.current.clear();
-        const isGR = ghostMode !== undefined ? ghostMode : isGhostRace;
+        setIsGenerating(true); setWinner(null); isWinnerDeclaredRef.current = false; setGhostHints({}); setBoardGifts([]);
+        const isGR = ghostMode !== undefined ? ghostMode : stateRef.current.isGhostRace;
         
         syncState({ 
             isGenerating: true, 
             isGhostRace: isGR, 
             winner: null, 
             matchPhase: isGR ? 'waiting' : 'playing', 
-            countdownTarget: null 
+            countdownTarget: null,
+            giftEvents: []
         }, true);
         
         setPlayersList(prev => {
-            const nList = prev.map(p => ({ ...p, isReady: false }));
+            const nList = prev.map(p => ({ ...p, isReady: !isGR, isSpectator: false }));
+            setIsSpectator(false);
             if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { players: nList }).catch(e=>e);
             else if (engineRef.current === 'peerjs' && isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
             return nList;
@@ -1264,23 +1306,26 @@
             generateSudokuAsync(sId, dId, setGenProgress).then(newData => {
                 let solution = null; if (isGR) solution = getSolutionGrid(newData.cells, newData.sizeDef);
                 const initLocalCells = JSON.parse(JSON.stringify(newData.cells)); const now = Date.now();
-                syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: now, isGhostRace: isGR, winner: null, solutionGrid: solution, isGenerating: false, selectedChar: null }, true);
+                syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: now, isGhostRace: isGR, winner: null, solutionGrid: solution, isGenerating: false, selectedChar: null, keyMapping: newData.sizeDef.chars }, true);
                 setIsWon(false); setHistory([]); if (sId !== sizeId) { setZoomLevel(1); setZoomModeIdx(0); } 
                 setEndTime(null); setHideVictoryModal(false); setSelectedChar(null); setGenProgress("");
             });
         }, 100);
       };
 
-      const handleSizeChange = (e) => { generateAndSync(Number(e.target.value), diffId); };
-      const handleDiffChange = (e) => { generateAndSync(sizeId, e.target.value); };
-      const handleRegenerateRandom = () => { generateAndSync(sizeId, diffId); };
+      const handleRegenerateRandomRef = useRef();
+      handleRegenerateRandomRef.current = () => { generateAndSync(stateRef.current.sizeId, stateRef.current.diffId, stateRef.current.isGhostRace); };
+      
+      const handleSizeChange = (e) => { generateAndSync(Number(e.target.value), stateRef.current.diffId, stateRef.current.isGhostRace); };
+      const handleDiffChange = (e) => { generateAndSync(stateRef.current.sizeId, e.target.value, stateRef.current.isGhostRace); };
+      const handleRegenerateRandom = () => { if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current(); };
       const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
       
       const switchToOffline = () => {
         if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
         setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false; setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null; setCursors({}); setRipples([]); setInteractionMode(0);
-        setIsGhostRace(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); setPadOrder(cSizeDef.chars); scrambledCharsRef.current.clear();
-        setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11], isReady: false }]);
+        setIsGhostRace(false); setIsSpectator(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); processedEventsRef.current.clear();
+        setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11], isReady: false, isSpectator: false }]);
       };
 
       const startSinglePlayer = () => { switchToOffline(); setScreen('game'); setIsHeaderCollapsed(false); generateAndSync(sizeId, diffId, false); };
@@ -1291,8 +1336,8 @@
         const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
         let solution = null; if (isGhostRace) solution = getSolutionGrid(initialLevelData.cells, initialLevelData.sizeDef);
         const initLocalCells = JSON.parse(JSON.stringify(initialLevelData.cells));
-        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution, matchPhase: isGhostRace ? 'waiting' : 'playing', countdownTarget: null }, false);
-        setIsGenerating(false); setPadOrder(initialLevelData.sizeDef.chars); scrambledCharsRef.current.clear(); bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear();
+        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution, matchPhase: isGhostRace ? 'waiting' : 'playing', countdownTarget: null, giftEvents: [], keyMapping: initialLevelData.sizeDef.chars }, false);
+        setIsGenerating(false); setBoardGifts([]); completedRegionsRef.current.clear(); processedEventsRef.current.clear();
         const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
         if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; await setupFirebase(finalId, pName, true); } 
         else { setEngine('peerjs'); engineRef.current = 'peerjs'; setupPeerJS(finalId, pName, true); }
@@ -1311,33 +1356,49 @@
 
         try {
           if (isCreating) {
-            setIsHost(true); isHostRef.current = true;
+            setIsHost(true); isHostRef.current = true; setIsSpectator(false);
             const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
             if (safeGameState.solutionGrid) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
-            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: false}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
+            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: !isGhostRace, isSpectator: false}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
           } else {
             const snap = await Promise.race([getDoc(rDoc), timeout(6000)]);
             if (!snap.exists()) { setIsConnecting(false); switchToOffline(); return showToast("⚠️ 找不到該對局大廳，請確認代碼"); }
             setIsHost(false); isHostRef.current = false;
+            const gs = snap.data().gameState;
+            const isSpec = gs && gs.isGhostRace && gs.matchPhase === 'playing';
+            setIsSpectator(isSpec);
             let pList = snap.data().players || []; const meIndex = pList.findIndex(p => p.id === myId);
-            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: false }); else pList[meIndex].name = pName;
+            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: !(gs && gs.isGhostRace), isSpectator: isSpec }); else { pList[meIndex].name = pName; pList[meIndex].isSpectator = isSpec; }
             await Promise.race([updateDoc(rDoc, { players: pList, updatedAt: Date.now() }), timeout(6000)]);
           }
           setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false);
           unsubRef.current = onSnapshot(rDoc, function(docSnap) {
             if (!docSnap.exists()) { showToast("⚠️ 房主已斷線，切換為單機模式"); switchToOffline(); return; }
             const data = docSnap.data(); const serverPlayers = data.players || []; setPlayersList(serverPlayers);
-            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current, isReady: false }] }).catch(e => {});
+            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current, isReady: !stateRef.current.isGhostRace, isSpectator: false }] }).catch(e => {});
             if (data.gameState) {
               const gs = data.gameState;
               if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
               if (gs.startTime) { setStartTime(gs.startTime); setMatchStartTime(gs.startTime); } if (gs.strokes !== undefined) setStrokes(gs.strokes);
               if (gs.matchPhase !== undefined) setMatchPhase(gs.matchPhase); if (gs.countdownTarget !== undefined) setCountdownTarget(gs.countdownTarget);
-              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; bombsRef.current = []; setBombs([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
+              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); } }
               if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar); if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace); if (gs.winner !== undefined) setWinner(gs.winner);
+              if (gs.keyMapping !== undefined) setKeyMapping(gs.keyMapping);
               if (gs.solutionGrid !== undefined) { const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid; solutionGridRef.current = parsedGrid; gs.solutionGrid = parsedGrid; }
-              if (gs.sizeId !== undefined) { setSizeId(gs.sizeId); setPadOrder(SIZES.find(s => s.id === gs.sizeId).chars); } if (gs.diffId !== undefined) setDiffId(gs.diffId);
+              if (gs.sizeId !== undefined) { setSizeId(gs.sizeId); } if (gs.diffId !== undefined) setDiffId(gs.diffId);
+              if (gs.giftEvents) {
+                  gs.giftEvents.forEach(ev => {
+                      if (!processedEventsRef.current.has(ev.id)) {
+                          processedEventsRef.current.add(ev.id);
+                          if (ev.type === 'RECEIVE_GIFT' && ev.targetUid === myId) {
+                              if (handleReceiveGiftRef.current) handleReceiveGiftRef.current(ev);
+                          } else if (ev.type === 'GIFT_COUNTER_ATTACK' && ev.targetUid === myId) {
+                              if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current();
+                          }
+                      }
+                  });
+              }
               stateRef.current = gs;
             }
           }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
@@ -1348,12 +1409,23 @@
         if (isCreating) {
             const p = new Peer('yyh-tgsh-' + rId + '-host'); peerRef.current = p;
             p.on('open', function() {
-              setIsHost(true); isHostRef.current = true; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: false }]);
+              setIsHost(true); isHostRef.current = true; setIsSpectator(false); setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: !stateRef.current.isGhostRace, isSpectator: false }]);
               p.on('connection', function(c) {
                 connsRef.current.push(c);
                 c.on('data', function(m) {
                   if (m.type === 'JOIN') {
-                      c.uid = m.uid; setPlayersList(prev => { let nList; if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName } : pl); else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev), isReady: false }]; connsRef.current.forEach(conn => { if (conn === c) conn.send({ type: 'INIT', data: { ...stateRef.current, solutionGrid: solutionGridRef.current }, players: nList }); else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
+                      c.uid = m.uid; 
+                      const isSpec = stateRef.current.isGhostRace && stateRef.current.matchPhase === 'playing';
+                      setPlayersList(prev => { 
+                          let nList; 
+                          if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName, isSpectator: isSpec } : pl); 
+                          else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev), isReady: !stateRef.current.isGhostRace, isSpectator: isSpec }]; 
+                          connsRef.current.forEach(conn => { 
+                              if (conn === c) conn.send({ type: 'INIT', data: { ...stateRef.current, solutionGrid: solutionGridRef.current }, players: nList, isSpectator: isSpec }); 
+                              else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); 
+                          }); 
+                          return nList; 
+                      });
                   } else if (m.type === 'LEAVE') { setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
                   } else if (m.type === 'SYNC') { syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
                   } else if (m.type === 'GHOST_SOLVED') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
@@ -1361,16 +1433,16 @@
                   } else if (m.type === 'REQ_COLOR_CHANGE') { setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
                   } else if (m.type === 'CURSOR') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   } else if (m.type === 'CLICK') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
-                  } else if (m.type === 'REGION_COMPLETE') {
-                      if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnBombsRef.current) spawnBombsRef.current(m.uid, m.count); }
+                  } else if (m.type === 'RECEIVE_GIFT') {
                       connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
-                  } else if (m.type === 'COUNTER_ATTACK') {
-                      if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); }
+                      if (m.targetUid === myId) { if (handleReceiveGiftRef.current) handleReceiveGiftRef.current(m); }
+                  } else if (m.type === 'GIFT_COUNTER_ATTACK') {
                       connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
+                      if (m.targetUid === myId) { if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current(); }
                   } else if (m.type === 'REQ_READY') {
                       setPlayersList(prev => { const nList = prev.map(p => p.id === m.targetId ? { ...p, isReady: true } : p); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
                   } else if (m.type === 'REQ_PLAY_AGAIN') {
-                      handleRegenerateRandom();
+                      if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current();
                   }
                 });
                 c.on('close', function() { connsRef.current = connsRef.current.filter(conn => conn.peer !== c.peer); if (c.uid) setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== c.uid); connsRef.current.forEach(conn => { if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; }); });
@@ -1383,7 +1455,7 @@
                 const c = guestP.connect('yyh-tgsh-' + rId + '-host'); connRef.current = c;
                 c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName || "玩家", uid: myId, color: myColorRef.current }); });
                 c.on('data', function(m) {
-                  if (m.type === 'INIT') { if (m.players) setPlayersList(m.players); if (m.data) { if(m.data.solutionGrid) solutionGridRef.current = m.data.solutionGrid; syncState({ ...m.data, localCells: JSON.parse(JSON.stringify(m.data.localCells || m.data.cells)) }, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); } }
+                  if (m.type === 'INIT') { if (m.isSpectator !== undefined) setIsSpectator(m.isSpectator); if (m.players) setPlayersList(m.players); if (m.data) { if(m.data.solutionGrid) solutionGridRef.current = m.data.solutionGrid; syncState({ ...m.data, localCells: JSON.parse(JSON.stringify(m.data.localCells || m.data.cells)) }, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); } }
                   else if (m.type === 'SYNC') { syncState(m.data, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); }
                   else if (m.type === 'PLAYERS_UPDATE') { if (m.players) setPlayersList(m.players); }
                   else if (m.type === 'GHOST_SOLVED') { setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); }
@@ -1391,8 +1463,8 @@
                   else if (m.type === 'CURSOR') setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   else if (m.type === 'CLICK') setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
                   else if (m.type === 'REQ_REJOIN') connRef.current.send({ type: 'JOIN', pName: myNameRef.current || "玩家", uid: myId, color: myColorRef.current });
-                  else if (m.type === 'REGION_COMPLETE') { if (m.uid !== myId && stateRef.current.isGhostRace) { if (spawnBombsRef.current) spawnBombsRef.current(m.uid, m.count); } }
-                  else if (m.type === 'COUNTER_ATTACK') { if (m.targetUid === myId && handleCounterAttackRef.current) { handleCounterAttackRef.current(); } }
+                  else if (m.type === 'RECEIVE_GIFT') { if (m.targetUid === myId) { if (handleReceiveGiftRef.current) handleReceiveGiftRef.current(m); } }
+                  else if (m.type === 'GIFT_COUNTER_ATTACK') { if (m.targetUid === myId) { if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current(); } }
                 });
                 c.on('close', function() { showToast("⚠️ 主機已離線，切換為單機模式"); switchToOffline(); });
             });
@@ -1435,7 +1507,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5.1)</div>
           </div>
         );
       }
@@ -1480,12 +1552,12 @@
         <div className="h-screen w-screen p-1 md:p-4 flex flex-col items-center font-sans relative" style={{ backgroundColor: '#fdf5e6', backgroundImage: 'radial-gradient(#d3c5ab 2px, transparent 2px)', backgroundSize: '12px 12px' }}>
           
           {/* === 幽靈賽：等待全員準備 UI === */}
-          {matchPhase === 'waiting' && !isGenerating && (
+          {matchPhase === 'waiting' && isGhostRace && !isGenerating && (
               <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm pointer-events-auto animate-fadeIn p-4">
                   <div className="bg-white rounded-2xl p-8 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] text-center min-w-[320px] max-w-md w-full">
                       <h2 className="text-3xl font-black text-slate-800 mb-6">等待所有人同意</h2>
                       <div className="flex flex-col gap-3 mb-8">
-                          {playersList.map(p => (
+                          {playersList.filter(p => !p.isSpectator).map(p => (
                               <div key={p.id} className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border-2 border-slate-300">
                                   <span className="font-bold text-slate-700 text-lg flex items-center gap-2">
                                       <span className="w-4 h-4 rounded-full inline-block border border-slate-400" style={{backgroundColor: p.color === 'rainbow' ? '#ffcc00' : p.color}}></span>
@@ -1507,7 +1579,7 @@
           )}
 
           {/* === 幽靈賽：5秒倒數 UI === */}
-          {matchPhase === 'countdown' && countdownNum !== null && !isGenerating && (
+          {matchPhase === 'countdown' && isGhostRace && countdownNum !== null && !isGenerating && (
               <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/50 backdrop-blur-md pointer-events-auto">
                   <div className="text-[12rem] font-black text-red-500 drop-shadow-[0_0_30px_rgba(255,0,0,0.8)] animate-pulse" style={{ textShadow: '6px 6px 0 #fff, -6px -6px 0 #fff, 6px -6px 0 #fff, -6px 6px 0 #fff' }}>
                       {countdownNum}
@@ -1520,7 +1592,7 @@
             <div className={`bg-[#ffcc00] border-b-4 border-slate-800 shrink-0 z-50 relative transition-all duration-300 ease-in-out px-2 md:px-4 py-2 flex flex-col gap-2`}>
                <div className="flex items-center justify-between gap-1 w-full">
                   <div className="flex items-center gap-2 flex-wrap flex-1">
-                     <h1 className="font-black tracking-tight uppercase text-lg md:text-2xl text-[#2d2a26] flex items-center gap-1">🔢<span className="hidden sm:inline">數獨</span></h1>
+                     <h1 className="font-black tracking-tight uppercase text-lg md:text-2xl text-[#2d2a26] flex items-center gap-1">🔢<span className="hidden sm:inline">數獨 - Sudoku</span></h1>
                      <div className="flex items-center gap-1 bg-[#2d2a26] text-white px-2 py-1 rounded-md font-mono font-bold shadow-[2px_2px_0px_rgba(0,0,0,0.4)] text-xs md:text-sm whitespace-nowrap">
                         <GameTimer startTime={startTime} endTime={endTime || (winner?matchStartTime:null)} isRunning={!isWon && !winner && screen === 'game' && matchPhase === 'playing'} matchPhase={matchPhase} />
                      </div>
@@ -1540,17 +1612,17 @@
                      {/* 團隊與個人進度條 (常駐顯示) */}
                      {isMultiplayer && startTime && !winner && !isWon && !isGenerating && matchPhase === 'playing' && (
                          <div className="flex-1 max-w-[300px] flex items-center gap-2 bg-white px-2 py-1 rounded border-2 border-slate-800 shadow-[2px_2px_0px_rgba(0,0,0,0.1)] ml-2">
-                            <span className="text-xs font-black text-slate-500 whitespace-nowrap">{isGhostRace ? '我的進度' : '團隊進度'}</span>
+                            <span className="text-xs font-black text-slate-500 whitespace-nowrap">{isGhostRace ? (isSpectator ? '最高進度' : '我的進度') : '團隊進度'}</span>
                             <div className="flex-1 h-3 bg-slate-200 rounded-full border border-slate-400 overflow-hidden flex">
                                 {isGhostRace ? (
-                                    <div className="h-full bg-emerald-500 transition-all duration-300" style={{width: `${myProgressPct}%`}} />
+                                    <div className="h-full bg-emerald-500 transition-all duration-300" style={{width: `${isSpectator ? 0 : myProgressPct}%`}} />
                                 ) : (
                                     playerProgress.map(pp => (
                                         <div key={pp.uid} className={`h-full transition-all duration-300 ${pp.color === 'rainbow' ? 'rainbow-bg' : ''}`} style={{width: `${pp.pct}%`, backgroundColor: pp.color !== 'rainbow' ? pp.color : undefined}} />
                                     ))
                                 )}
                             </div>
-                            <span className="text-xs font-black text-emerald-600 font-mono w-9 text-right">{teamProgressPct}%</span>
+                            <span className="text-xs font-black text-emerald-600 font-mono w-9 text-right">{isSpectator && isGhostRace ? '-' : teamProgressPct}%</span>
                          </div>
                      )}
                   </div>
@@ -1565,7 +1637,7 @@
                            <li>選擇上方數字點擊方格。若不選上方數字，可直接點擊盤面已有數字來「智慧吸取」高亮。</li>
                            <li>不可重複：若發生衝突，背景會亮起紅色提示。</li>
                            <li>草稿模式：可在方格內標記多個小數字輔助推理。</li>
-                           <li>嚴謹出題：保證只有唯一解。支援鍵盤 1~9 / A~F 與 Q 切換模式。</li>
+                           <li>嚴謹出題：保證只有唯一解。支援鍵盤快速切換。</li>
                         </ol>
                      </div>
                   </div>
@@ -1597,10 +1669,10 @@
                 {playersList.map((p, idx) => {
                   const isMe = p.id === myId; const isRainbow = p.color === 'rainbow';
                   return (
-                    <div key={idx} className="relative inline-flex">
+                    <div key={idx} className={`relative inline-flex ${p.isSpectator ? 'opacity-60' : ''}`}>
                       <span onClick={() => setColorPickerTarget(prev => prev === p.id ? null : p.id)} title={isMe ? "點擊切換顏色" : "點擊為玩家換色"} className="px-2 py-0.5 rounded text-xs font-bold bg-white text-slate-800 flex items-center shadow-[1px_1px_0px_rgba(30,41,59,1)] cursor-pointer hover:bg-slate-100 transition-colors relative border-2 border-slate-800" style={{ borderLeftWidth: '6px', borderLeftColor: isRainbow ? 'transparent' : p.color }}>
                         {isRainbow && ( <svg className="absolute top-[-2px] left-[-6px] w-[6px] pointer-events-none" style={{ height: 'calc(100% + 4px)', borderRadius: '2px 0 0 2px' }}><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
-                        {p.name} {p.isHost && '👑'} {isMe && '(你)'}
+                        {p.name} {p.isHost && '👑'} {p.isSpectator && ' 👁️'} {isMe && '(你)'}
                       </span>
                       {colorPickerTarget === p.id && (
                         <div className="absolute top-full mt-2 left-0 sm:left-0 bg-[#fffdfa] border-[3px] border-slate-800 rounded-xl p-3 shadow-[4px_4px_0px_rgba(30,41,59,1)] z-[100] w-[180px] animate-fadeIn">
@@ -1627,7 +1699,7 @@
               </div>
             )}
 
-            {!isHeaderCollapsed && (
+            {!isHeaderCollapsed && !isSpectator && (
               <div className="h-8 shrink-0 flex items-center justify-center bg-slate-800 text-white border-b-4 border-slate-800 relative z-30 font-bold tracking-wide">
                 <span className="text-xs md:text-sm hidden md:inline">支援滑鼠拖曳、滾輪縮放；向下滑動畫布可自動收合選單。</span>
                 <span className="text-xs md:text-sm md:hidden">點選上方數字再點擊方格。支援雙指縮放與平移。</span>
@@ -1655,233 +1727,280 @@
                 </div>
               )}
 
-              {/* 頂部數字鍵盤：套用干擾洗牌邏輯與翻轉特效 */}
-              <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto select-none" style={{ perspective: '1000px' }}>
-                 {padOrder.map(c => {
-                    const isCompleted = completedChars.has(c);
-                    const isFlipping = flippingKeys.includes(c);
-                    return (
-                        <button
-                           key={c}
-                           onClick={(e) => { onNumClick(e, c); }}
-                           title={isCompleted ? `已經填滿 ${c}` : `點擊選取 ${c}`}
-                           className={`select-none w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 flex items-center justify-center shrink-0 key-btn
-                           ${isFlipping ? 'key-flip' : ''}
-                           ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none' : 
-                             selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
-                           ${!isFlipping && !isCompleted ? 'active:translate-y-1 active:shadow-none' : ''}`}
-                        >
-                           {c}
-                        </button>
-                    );
-                 })}
-              </div>
-
-              <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 flex flex-col gap-2 md:gap-3 z-[5] pointer-events-auto items-end">
-                <div className="flex items-center">
-                   {interactionMode === 2 && (
-                       <div className="flex items-center gap-2 animate-fadeIn bg-white/80 p-1.5 rounded-full border-2 border-slate-300 backdrop-blur-sm mr-2 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
-                           <button onClick={() => setDrawSubMode('pen')} className={`w-9 h-9 md:w-10 md:h-10 border-2 border-slate-800 rounded-full font-black text-lg flex items-center justify-center shadow-sm transition-[transform,color] relative overflow-hidden ${drawSubMode === 'pen' ? 'text-white scale-110 shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100'}`} style={drawSubMode === 'pen' && myCurrentColor !== 'rainbow' ? { backgroundColor: myCurrentColor } : { backgroundColor: drawSubMode === 'pen' && myCurrentColor === 'rainbow' ? 'transparent' : undefined }} title="畫筆">
-                               {drawSubMode === 'pen' && myCurrentColor === 'rainbow' && ( <svg className="absolute inset-0 w-full h-full pointer-events-none -z-10"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
-                               <span className="relative z-10">🖌️</span>
-                           </button>
-                           <button onClick={() => setDrawSubMode('eraser')} onDoubleClick={clearOwnStrokes} className={`w-9 h-9 md:w-10 md:h-10 border-2 border-slate-800 rounded-full font-black text-lg flex items-center justify-center shadow-sm transition-[transform,color] relative overflow-hidden ${drawSubMode === 'eraser' ? 'text-white scale-110 shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100'}`} style={drawSubMode === 'eraser' && myCurrentColor !== 'rainbow' ? { backgroundColor: myCurrentColor } : { backgroundColor: drawSubMode === 'eraser' && myCurrentColor === 'rainbow' ? 'transparent' : undefined }} title="橡皮擦 (連點兩下清空自己的塗鴉)">
-                               {drawSubMode === 'eraser' && myCurrentColor === 'rainbow' && ( <svg className="absolute inset-0 w-full h-full pointer-events-none -z-10"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
-                               <span className="relative z-10">🧽</span>
-                           </button>
-                           {isHostRef.current && ( <button onClick={clearAllStrokes} className={`w-9 h-9 md:w-10 md:h-10 bg-red-500 hover:bg-red-600 text-white border-2 border-slate-800 rounded-full font-black text-lg transition-all flex items-center justify-center shadow-sm ml-1`} title="房主特權：清空所有人塗鴉">🚨</button> )}
-                       </div>
-                   )}
-                   <button 
-                       onClick={toggleInteractionMode}
-                       title={`切換模式 (目前: ${modeTitles[interactionMode]})`} 
-                       className={`w-10 h-10 md:w-12 md:h-12 border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none transition-all flex items-center justify-center ${interactionMode > 0 ? 'bg-[#ffcc00] text-slate-800' : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}
-                   >
-                     {modeIcons[interactionMode]}
-                   </button>
-                </div>
-                <button onClick={handleZoomIn} title="放大" className="w-10 h-10 md:w-12 md:h-12 bg-white border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] hover:bg-slate-100 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-slate-800">＋</button>
-                <button onClick={handleZoomOut} title="縮小" className="w-10 h-10 md:w-12 md:h-12 bg-white border-2 border-slate-800 rounded-full font-black text-2xl md:text-3xl shadow-[3px_3px_0px_rgba(30,41,59,1)] hover:bg-slate-100 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-slate-800">－</button>
-                <button onClick={handleCycleZoom} title="循環切換縮放模式" className="w-10 h-10 md:w-12 md:h-12 bg-slate-800 border-2 border-slate-800 rounded-full font-black text-xs md:text-sm shadow-[3px_3px_0px_rgba(0,0,0,0.3)] hover:bg-slate-700 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-white">
-                  {zoomModeIdx === 0 ? '1x' : zoomModeIdx === 1 ? '↔️' : zoomModeIdx === 2 ? '↕️' : '🔲'}
-                </button>
-              </div>
-
-              <div ref={zoomContainerRef} className="p-2 md:p-6 flex-1 overflow-auto custom-scrollbar relative z-0">
-                <div className="flex justify-center items-center min-w-max min-h-max m-auto pb-10 pr-20">
-                  <svg 
-                    ref={svgRef}
-                    onPointerMove={handlePointerMove}
-                    onPointerDown={handlePointerDown}
-                    onPointerUp={handlePointerUp}
-                    onPointerLeave={(e) => { handlePointerUp(e); if(eraserRef.current) eraserRef.current.style.display = 'none'; }}
-                    onPointerCancel={handlePointerUp}
-                    viewBox={`0 0 ${svgW} ${svgH}`} 
-                    className="bg-transparent transition-transform duration-100 ease-out origin-center select-none" 
-                    style={{ width: `${svgW * zoomLevel}px`, height: `${svgH * zoomLevel}px`, touchAction: (interactionMode >= 2) ? 'none' : 'manipulation' }}>
-                    <defs>
-                      <linearGradient id="rainbowGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={svgW} y2={svgH}>
-                          <stop offset="0%" className="rainbow-stop" />
-                          <stop offset="100%" className="rainbow-stop" />
-                      </linearGradient>
-                    </defs>
-
-                    {/* 1. 最底層：背景與高亮 */}
-                    <g transform={`translate(${PADDING}, ${PADDING})`}>
-                        {activeCells.map(cell => {
-                            const hasConflict = conflictCellIds.has(cell.id);
-                            const isExactMatch = selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
-                            const isHighlightZone = highlightZones.has(cell.id);
-                            const isFilledWithOther = selectedChar !== null && cell.value !== null && cell.value !== selectedChar && interactionMode < 2;
-                            const ghostInfo = ghostHints[cell.id];
-                            
-                            let fillColor = '#ffffff';
-                            if (hasConflict) fillColor = '#fee2e2'; 
-                            else if (isExactMatch) fillColor = '#fde047'; 
-                            else if (isHighlightZone || isFilledWithOther) fillColor = '#fef8cb'; 
-                            
-                            return (
-                                <g key={`bg-${cell.id}`}>
-                                    <rect x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={fillColor} className="transition-colors duration-300 pointer-events-none" />
-                                    {/* === 幽靈對手進度：右上角方塊 === */}
-                                    {isGhostRace && ghostInfo && !cell.isGiven && !cell.isSystemRevealed && Object.entries(ghostInfo).map(([uid, color], idx) => {
-                                        const sqSize = 10;
-                                        const col = idx % 5;
-                                        const row = Math.floor(idx / 5);
-                                        const offsetX = col * (sqSize + 2);
-                                        const offsetY = row * (sqSize + 2);
-                                        return (
-                                            <rect key={uid} x={cell.x * CELL_SIZE + CELL_SIZE - sqSize - 2 - offsetX} y={cell.y * CELL_SIZE + 2 + offsetY} width={sqSize} height={sqSize} fill={color === 'rainbow' ? 'url(#rainbowGrad)' : color} opacity="0.8" rx="2" className="pointer-events-none ghost-highlight" />
-                                        );
-                                    })}
-                                </g>
-                            );
-                        })}
-                    </g>
-
-                    {/* 2. 中層：塗鴉筆跡 */}
-                    {strokes.map(s => {
-                        const strokeUid = s.uid || s.id.split('-')[1]; const isOwnStroke = strokeUid === myId;
-                        let strokeColor = s.color; let strokeOpacity = 1; let isRainbow = false;
-                        if (strokeUid) { strokeColor = getPlayerColor(strokeUid); if (strokeColor === 'rainbow') isRainbow = true; strokeOpacity = (isMultiplayer && !isOwnStroke) ? 0.5 : 1; }
-                        return <path key={s.id} d={s.path} fill="none" stroke={isRainbow ? undefined : strokeColor} strokeOpacity={strokeOpacity} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`doodle-stroke ${isRainbow ? 'rainbow-stroke' : ''}`} data-stroke-id={s.id} style={{ pointerEvents: (interactionMode === 2 && drawSubMode === 'eraser' && isOwnStroke) ? 'stroke' : 'none' }} />;
-                    })}
-                    <path ref={drawingPathRef} fill="none" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeOpacity={1} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke' : ''}`} style={{ display: 'none' }} />
-
-                    {/* 3. 上層：網格線與文字 */}
-                    <g transform={`translate(${PADDING}, ${PADDING})`}>
-                        {Array.from({ length: cSizeDef.size + 1 }).map((_, i) => {
-                            const isThickX = i % cSizeDef.boxW === 0; const isThickY = i % cSizeDef.boxH === 0;
-                            return (
-                                <g key={`grid-line-${i}`} className="pointer-events-none">
-                                    <line x1={i * CELL_SIZE} y1={0} x2={i * CELL_SIZE} y2={cSizeDef.size * CELL_SIZE} stroke="#1e293b" strokeWidth={isThickX ? 4 : 1} strokeLinecap={isThickX ? 'square' : 'butt'} />
-                                    <line x1={0} y1={i * CELL_SIZE} x2={cSizeDef.size * CELL_SIZE} y2={i * CELL_SIZE} stroke="#1e293b" strokeWidth={isThickY ? 4 : 1} strokeLinecap={isThickY ? 'square' : 'butt'} />
-                                </g>
-                            );
-                        })}
-
-                        {/* 點擊熱區與數字內容 */}
-                        {activeCells.map(cell => {
-                            const cx = cell.x * CELL_SIZE; const cy = cell.y * CELL_SIZE;
-                            let valColor = "#1e293b"; let isRainbow = false;
-                            if (!cell.isGiven && cell.value && cell.owner) {
-                                valColor = getPlayerColor(cell.owner); if (valColor === 'rainbow') isRainbow = true;
-                            }
-                            if (cell.isSystemRevealed) {
-                                valColor = "#1e293b"; 
-                                isRainbow = false;
-                            }
-
-                            return (
-                                <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
-                                    <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
-
-                                    {cell.value ? (
-                                        <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven || cell.isSystemRevealed ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
-                                            {cell.value}
-                                        </text>
-                                    ) : (
-                                        cell.drafts.map(d => {
-                                            const idx = cSizeDef.chars.indexOf(d); let dx, dy, fontSize;
-                                            if (cSizeDef.size === 4) { dx = (idx % 2) * (CELL_SIZE/2) + (CELL_SIZE/4); dy = Math.floor(idx / 2) * (CELL_SIZE/2) + (CELL_SIZE/4); fontSize = CELL_SIZE * 0.3; } 
-                                            else if (cSizeDef.size === 9) { dx = (idx % 3) * (CELL_SIZE/3) + (CELL_SIZE/6); dy = Math.floor(idx / 3) * (CELL_SIZE/3) + (CELL_SIZE/6); fontSize = CELL_SIZE * 0.25; } 
-                                            else { dx = (idx % 4) * (CELL_SIZE/4) + (CELL_SIZE/8); dy = Math.floor(idx / 4) * (CELL_SIZE/4) + (CELL_SIZE/8); fontSize = CELL_SIZE * 0.18; }
-                                            
-                                            const isDraftSelected = d === selectedChar;
-                                            
-                                            return (
-                                                <g key={`draft-${d}`} className="pointer-events-none">
-                                                    <text 
-                                                        x={cx + dx} 
-                                                        y={cy + dy + 1} 
-                                                        textAnchor="middle" 
-                                                        dominantBaseline="central" 
-                                                        fontSize={isDraftSelected ? fontSize * 1.2 : fontSize} 
-                                                        fontWeight={isDraftSelected ? "900" : "bold"} 
-                                                        fill={isDraftSelected ? "#facc15" : "#64748b"} 
-                                                        stroke={isDraftSelected ? "#1e293b" : "none"} 
-                                                        strokeWidth={isDraftSelected ? 2 : 0} 
-                                                        strokeLinejoin="round" 
-                                                        paintOrder="stroke" 
-                                                        className="select-none transition-all duration-200"
-                                                    >
-                                                        {d}
-                                                    </text>
-                                                </g>
-                                            );
-                                        })
-                                    )}
-                                </g>
-                            );
-                        })}
+              {!isSpectator && (
+                  <div className="flex flex-wrap gap-1 md:gap-2 justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto select-none">
+                     {keyMapping.map((c, idx) => {
+                        // 使用實際的數字來判斷是否完成
+                        const isCompleted = completedChars.has(c);
+                        const isFlipped = flippedKeys.includes(idx);
                         
-                        {/* 5. 炸彈與爆炸特效層 */}
-                        {bombs.map(b => {
-                            const cell = localCells.find(c => c.id === b.cellId);
-                            if (!cell) return null;
-                            const cx = cell.x * CELL_SIZE + CELL_SIZE / 2;
-                            const cy = cell.y * CELL_SIZE + CELL_SIZE / 2;
-                            const timeLeft = Math.max(1, Math.ceil((b.expireTime - nowTimer) / 1000));
+                        return (
+                            <button
+                               key={`keybtn-${idx}`}
+                               onClick={(e) => { onNumClick(e, c); }}
+                               title={isCompleted ? `已經填滿 ${c}` : `點擊選取 ${c}`}
+                               className={`select-none w-10 h-10 md:w-12 md:h-12 rounded-xl text-xl md:text-2xl font-black border-[3px] border-slate-800 flex items-center justify-center shrink-0 key-btn
+                               ${isFlipped ? 'anim-key-flip' : ''}
+                               ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none' : 
+                                 selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
+                               ${!isCompleted && !isFlipped ? 'active:translate-y-1 active:shadow-none' : ''}`}
+                            >
+                               {c}
+                            </button>
+                        );
+                     })}
+                  </div>
+              )}
+
+              {!isSpectator && (
+                  <div className="absolute bottom-4 right-4 md:bottom-6 md:right-6 flex flex-col gap-2 md:gap-3 z-[5] pointer-events-auto items-end">
+                    <div className="flex items-center">
+                       {interactionMode === 2 && (
+                           <div className="flex items-center gap-2 animate-fadeIn bg-white/80 p-1.5 rounded-full border-2 border-slate-300 backdrop-blur-sm mr-2 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
+                               <button onClick={() => setDrawSubMode('pen')} className={`w-9 h-9 md:w-10 md:h-10 border-2 border-slate-800 rounded-full font-black text-lg flex items-center justify-center shadow-sm transition-[transform,color] relative overflow-hidden ${drawSubMode === 'pen' ? 'text-white scale-110 shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100'}`} style={drawSubMode === 'pen' && myCurrentColor !== 'rainbow' ? { backgroundColor: myCurrentColor } : { backgroundColor: drawSubMode === 'pen' && myCurrentColor === 'rainbow' ? 'transparent' : undefined }} title="畫筆">
+                                   {drawSubMode === 'pen' && myCurrentColor === 'rainbow' && ( <svg className="absolute inset-0 w-full h-full pointer-events-none -z-10"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
+                                   <span className="relative z-10">🖌️</span>
+                               </button>
+                               <button onClick={() => setDrawSubMode('eraser')} onDoubleClick={clearOwnStrokes} className={`w-9 h-9 md:w-10 md:h-10 border-2 border-slate-800 rounded-full font-black text-lg flex items-center justify-center shadow-sm transition-[transform,color] relative overflow-hidden ${drawSubMode === 'eraser' ? 'text-white scale-110 shadow-md' : 'bg-white text-slate-600 hover:bg-slate-100'}`} style={drawSubMode === 'eraser' && myCurrentColor !== 'rainbow' ? { backgroundColor: myCurrentColor } : { backgroundColor: drawSubMode === 'eraser' && myCurrentColor === 'rainbow' ? 'transparent' : undefined }} title="橡皮擦 (連點兩下清空自己的塗鴉)">
+                                   {drawSubMode === 'eraser' && myCurrentColor === 'rainbow' && ( <svg className="absolute inset-0 w-full h-full pointer-events-none -z-10"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg> )}
+                                   <span className="relative z-10">🧽</span>
+                               </button>
+                               {isHostRef.current && ( <button onClick={clearAllStrokes} className={`w-9 h-9 md:w-10 md:h-10 bg-red-500 hover:bg-red-600 text-white border-2 border-slate-800 rounded-full font-black text-lg transition-all flex items-center justify-center shadow-sm ml-1`} title="房主特權：清空所有人塗鴉">🚨</button> )}
+                           </div>
+                       )}
+                       <button 
+                           onClick={toggleInteractionMode}
+                           title={`切換模式 (目前: ${modeTitles[interactionMode]})`} 
+                           className={`w-10 h-10 md:w-12 md:h-12 border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-1 active:shadow-none transition-all flex items-center justify-center ${interactionMode > 0 ? 'bg-[#ffcc00] text-slate-800' : 'bg-white text-slate-400 hover:text-slate-800 hover:bg-slate-100'}`}
+                       >
+                         {modeIcons[interactionMode]}
+                       </button>
+                    </div>
+                    <button onClick={handleZoomIn} title="放大" className="w-10 h-10 md:w-12 md:h-12 bg-white border-2 border-slate-800 rounded-full font-black text-xl md:text-2xl shadow-[3px_3px_0px_rgba(30,41,59,1)] hover:bg-slate-100 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-slate-800">＋</button>
+                    <button onClick={handleZoomOut} title="縮小" className="w-10 h-10 md:w-12 md:h-12 bg-white border-2 border-slate-800 rounded-full font-black text-2xl md:text-3xl shadow-[3px_3px_0px_rgba(30,41,59,1)] hover:bg-slate-100 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-slate-800">－</button>
+                    <button onClick={handleCycleZoom} title="循環切換縮放模式" className="w-10 h-10 md:w-12 md:h-12 bg-slate-800 border-2 border-slate-800 rounded-full font-black text-xs md:text-sm shadow-[3px_3px_0px_rgba(0,0,0,0.3)] hover:bg-slate-700 active:translate-y-1 active:shadow-none transition-all flex items-center justify-center text-white">
+                      {zoomModeIdx === 0 ? '1x' : zoomModeIdx === 1 ? '↔️' : zoomModeIdx === 2 ? '↕️' : '🔲'}
+                    </button>
+                  </div>
+              )}
+
+              <div ref={zoomContainerRef} className="p-2 md:p-6 flex-1 overflow-auto custom-scrollbar relative z-0 flex flex-col">
+                {isSpectator ? (
+                    <div className="flex-1 flex flex-col items-center justify-center min-h-[400px]">
+                        <div className="bg-white border-4 border-slate-800 rounded-xl p-6 md:p-10 shadow-[8px_8px_0px_rgba(30,41,59,1)] w-full max-w-2xl text-center">
+                            <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-2 tracking-widest">📡 賽況轉播中</h2>
+                            <p className="text-slate-500 font-bold mb-8">您以觀戰者身分加入，請為場上玩家加油！</p>
+                            
+                            <div className="flex flex-col gap-5 text-left">
+                                {playersList.filter(p => !p.isSpectator).map(p => {
+                                    let solvedCount = 0;
+                                    Object.values(ghostHints).forEach(cellHints => { if (cellHints[p.id]) solvedCount++; });
+                                    const pct = totalEmpty > 0 ? Math.min(100, Math.floor((solvedCount / totalEmpty) * 100)) : 0;
+                                    return (
+                                        <div key={p.id} className="flex flex-col gap-2">
+                                            <div className="flex justify-between font-black text-slate-700 items-center">
+                                                <span className="flex items-center gap-2">
+                                                    <span className="w-4 h-4 rounded-full border-2 border-slate-800" style={{backgroundColor: p.color === 'rainbow' ? '#ffcc00' : p.color}}></span>
+                                                    {p.name} {p.isHost && '👑'}
+                                                </span>
+                                                <span className="text-emerald-600 font-mono text-lg">{pct}%</span>
+                                            </div>
+                                            <div className="w-full h-5 bg-slate-100 rounded-full overflow-hidden border-2 border-slate-800 shadow-inner">
+                                                <div className="h-full transition-all duration-300" style={{width: `${pct}%`, backgroundColor: p.color === 'rainbow' ? '#ffcc00' : p.color}}></div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {playersList.filter(p => !p.isSpectator).length === 0 && (
+                                    <div className="text-center text-slate-400 font-bold py-4">目前場上沒有比賽玩家</div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex justify-center items-center min-w-max min-h-max m-auto pb-10 pr-20">
+                      <svg 
+                        ref={svgRef}
+                        onPointerMove={handlePointerMove}
+                        onPointerDown={handlePointerDown}
+                        onPointerUp={handlePointerUp}
+                        onPointerLeave={(e) => { handlePointerUp(e); if(eraserRef.current) eraserRef.current.style.display = 'none'; }}
+                        onPointerCancel={handlePointerUp}
+                        viewBox={`0 0 ${svgW} ${svgH}`} 
+                        className="bg-transparent transition-transform duration-100 ease-out origin-center select-none" 
+                        style={{ width: `${svgW * zoomLevel}px`, height: `${svgH * zoomLevel}px`, touchAction: (interactionMode >= 2) ? 'none' : 'manipulation' }}>
+                        <defs>
+                          <linearGradient id="rainbowGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2={svgW} y2={svgH}>
+                              <stop offset="0%" className="rainbow-stop" />
+                              <stop offset="100%" className="rainbow-stop" />
+                          </linearGradient>
+                        </defs>
+
+                        {/* 1. 最底層：背景與高亮 */}
+                        <g transform={`translate(${PADDING}, ${PADDING})`}>
+                            {activeCells.map(cell => {
+                                const hasConflict = conflictCellIds.has(cell.id);
+                                const isExactMatch = selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
+                                const isHighlightZone = highlightZones.has(cell.id);
+                                const isFilledWithOther = selectedChar !== null && cell.value !== null && cell.value !== selectedChar && interactionMode < 2;
+                                
+                                let fillColor = '#ffffff';
+                                if (hasConflict) fillColor = '#fee2e2'; 
+                                else if (isExactMatch) fillColor = '#fde047'; 
+                                else if (isHighlightZone || isFilledWithOther) fillColor = '#fef8cb'; 
+                                
+                                return (
+                                    <g key={`bg-${cell.id}`}>
+                                        <rect x={cell.x * CELL_SIZE} y={cell.y * CELL_SIZE} width={CELL_SIZE} height={CELL_SIZE} fill={fillColor} className="transition-colors duration-300 pointer-events-none" />
+                                    </g>
+                                );
+                            })}
+                        </g>
+
+                        {/* 2. 中層：塗鴉筆跡 */}
+                        {strokes.map(s => {
+                            const strokeUid = s.uid || s.id.split('-')[1]; const isOwnStroke = strokeUid === myId;
+                            let strokeColor = s.color; let strokeOpacity = 1; let isRainbow = false;
+                            if (strokeUid) { strokeColor = getPlayerColor(strokeUid); if (strokeColor === 'rainbow') isRainbow = true; strokeOpacity = (isMultiplayer && !isOwnStroke) ? 0.5 : 1; }
+                            return <path key={s.id} d={s.path} fill="none" stroke={isRainbow ? undefined : strokeColor} strokeOpacity={strokeOpacity} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`doodle-stroke ${isRainbow ? 'rainbow-stroke' : ''}`} data-stroke-id={s.id} style={{ pointerEvents: (interactionMode === 2 && drawSubMode === 'eraser' && isOwnStroke) ? 'stroke' : 'none' }} />;
+                        })}
+                        <path ref={drawingPathRef} fill="none" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeOpacity={1} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke' : ''}`} style={{ display: 'none' }} />
+
+                        {/* 3. 上層：網格線與文字 */}
+                        <g transform={`translate(${PADDING}, ${PADDING})`}>
+                            {Array.from({ length: cSizeDef.size + 1 }).map((_, i) => {
+                                const isThickX = i % cSizeDef.boxW === 0; const isThickY = i % cSizeDef.boxH === 0;
+                                return (
+                                    <g key={`grid-line-${i}`} className="pointer-events-none">
+                                        <line x1={i * CELL_SIZE} y1={0} x2={i * CELL_SIZE} y2={cSizeDef.size * CELL_SIZE} stroke="#1e293b" strokeWidth={isThickX ? 4 : 1} strokeLinecap={isThickX ? 'square' : 'butt'} />
+                                        <line x1={0} y1={i * CELL_SIZE} x2={cSizeDef.size * CELL_SIZE} y2={i * CELL_SIZE} stroke="#1e293b" strokeWidth={isThickY ? 4 : 1} strokeLinecap={isThickY ? 'square' : 'butt'} />
+                                    </g>
+                                );
+                            })}
+
+                            {/* 點擊熱區與數字內容 */}
+                            {activeCells.map(cell => {
+                                const cx = cell.x * CELL_SIZE; const cy = cell.y * CELL_SIZE;
+                                let valColor = "#1e293b"; let isRainbow = false;
+                                if (!cell.isGiven && cell.value && cell.owner) {
+                                    valColor = getPlayerColor(cell.owner); if (valColor === 'rainbow') isRainbow = true;
+                                }
+                                if (cell.isSystemRevealed) {
+                                    valColor = "#1e293b"; 
+                                    isRainbow = false;
+                                }
+
+                                return (
+                                    <g key={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
+                                        <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
+
+                                        {cell.value ? (
+                                            <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven || cell.isSystemRevealed ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
+                                                {cell.value}
+                                            </text>
+                                        ) : (
+                                            cell.drafts.map(d => {
+                                                const idx = cSizeDef.chars.indexOf(d); let dx, dy, fontSize;
+                                                if (cSizeDef.size === 4) { dx = (idx % 2) * (CELL_SIZE/2) + (CELL_SIZE/4); dy = Math.floor(idx / 2) * (CELL_SIZE/2) + (CELL_SIZE/4); fontSize = CELL_SIZE * 0.3; } 
+                                                else if (cSizeDef.size === 9) { dx = (idx % 3) * (CELL_SIZE/3) + (CELL_SIZE/6); dy = Math.floor(idx / 3) * (CELL_SIZE/3) + (CELL_SIZE/6); fontSize = CELL_SIZE * 0.25; } 
+                                                else { dx = (idx % 4) * (CELL_SIZE/4) + (CELL_SIZE/8); dy = Math.floor(idx / 4) * (CELL_SIZE/4) + (CELL_SIZE/8); fontSize = CELL_SIZE * 0.18; }
+                                                
+                                                const isDraftSelected = d === selectedChar;
+                                                
+                                                return (
+                                                    <g key={`draft-${d}`} className="pointer-events-none">
+                                                        <text 
+                                                            x={cx + dx} 
+                                                            y={cy + dy + 1} 
+                                                            textAnchor="middle" 
+                                                            dominantBaseline="central" 
+                                                            fontSize={isDraftSelected ? fontSize * 1.2 : fontSize} 
+                                                            fontWeight={isDraftSelected ? "900" : "bold"} 
+                                                            fill={isDraftSelected ? "#facc15" : "#64748b"} 
+                                                            stroke={isDraftSelected ? "#1e293b" : "none"} 
+                                                            strokeWidth={isDraftSelected ? 2 : 0} 
+                                                            strokeLinejoin="round" 
+                                                            paintOrder="stroke" 
+                                                            className="select-none transition-all duration-200"
+                                                        >
+                                                            {d}
+                                                        </text>
+                                                    </g>
+                                                );
+                                            })
+                                        )}
+                                    </g>
+                                );
+                            })}
+                        </g>
+
+                        {/* 4. 幽靈對手進度：右上角方塊 (保證不被覆蓋) */}
+                        <g transform={`translate(${PADDING}, ${PADDING})`}>
+                            {isGhostRace && activeCells.map(cell => {
+                                const ghostInfo = ghostHints[cell.id];
+                                if (!ghostInfo || cell.isGiven || cell.isSystemRevealed) return null;
+                                return Object.entries(ghostInfo).map(([uid, color], idx) => {
+                                    if (uid === myId) return null; // 不顯示自己的
+                                    const sqSize = 10;
+                                    const col = idx % 5;
+                                    const row = Math.floor(idx / 5);
+                                    const offsetX = col * (sqSize + 2);
+                                    const offsetY = row * (sqSize + 2);
+                                    return (
+                                        <rect key={`ghost-${cell.id}-${uid}`} x={cell.x * CELL_SIZE + CELL_SIZE - sqSize - 2 - offsetX} y={cell.y * CELL_SIZE + 2 + offsetY} width={sqSize} height={sqSize} fill={color === 'rainbow' ? 'url(#rainbowGrad)' : color} opacity="0.95" rx="2" className="pointer-events-none ghost-highlight" stroke="rgba(255,255,255,0.7)" strokeWidth="1" />
+                                    );
+                                });
+                            })}
+                        </g>
+                        
+                        {/* 盤面實體化禮物 (覆蓋在被送禮的格子上) */}
+                        <g transform={`translate(${PADDING}, ${PADDING})`}>
+                            {boardGifts.map(gift => {
+                                const cell = activeCells.find(c => c.id === gift.cellId);
+                                if (!cell) return null;
+                                const cx = cell.x * CELL_SIZE;
+                                const cy = cell.y * CELL_SIZE;
+                                // 依據點擊次數稍微放大作為回饋
+                                const scale = 1 + (gift.clicks * 0.15); 
+                                return (
+                                    <g key={`gift-${gift.id}`} 
+                                       transform={`translate(${cx}, ${cy})`} 
+                                       onPointerDown={(e) => handleGiftClick(e, gift.id)} 
+                                       className="cursor-pointer"
+                                    >
+                                        <rect width={CELL_SIZE} height={CELL_SIZE} fill="rgba(255, 255, 255, 0.85)" className="pointer-events-none" />
+                                        <g transform={`translate(${CELL_SIZE/2}, ${CELL_SIZE/2}) scale(${scale})`}>
+                                            <text y="4" textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.55} className="select-none pointer-events-auto transition-transform duration-75">
+                                                🎁
+                                            </text>
+                                        </g>
+                                    </g>
+                                );
+                            })}
+                        </g>
+
+                        {/* 5. 最頂層：游標與橡皮擦 */}
+                        <circle ref={eraserRef} r="15" fill={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} fillOpacity="0.4" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeWidth="2" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke rainbow-fill' : ''}`} style={{ display: 'none' }} />
+
+                        {!isGhostRace && Object.entries(cursors).map(entry => {
+                            const uid = entry[0]; const pos = entry[1]; if (uid === myId) return null;
+                            const player = playersList.find(p => p.id === uid); if (!player) return null;
+                            const isRainbow = player.color === 'rainbow';
                             return (
-                                <g key={b.id} transform={`translate(${cx}, ${cy})`} onClick={(e) => { e.stopPropagation(); if (handleBombClickRef.current) handleBombClickRef.current(b.id); }}>
-                                    <circle r={CELL_SIZE * 0.4} fill="rgba(255, 255, 255, 0.85)" className="pointer-events-none" />
-                                    <text className="anim-bomb select-none" textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.5} y="-4">💣</text>
-                                    <text y={CELL_SIZE * 0.3} fill="#E3002B" fontSize={CELL_SIZE * 0.3} fontWeight="900" textAnchor="middle" className="select-none pointer-events-none">{timeLeft}</text>
+                                <g key={`cursor-${uid}`} transform={`translate(${pos.x}, ${pos.y})`} className="pointer-events-none transition-transform duration-75 ease-linear">
+                                   <path d="M0,0 L16,6 L10,10 L15,19 L11,21 L6,12 L0,18 Z" fill={isRainbow ? undefined : player.color} stroke="white" strokeWidth="2" className={isRainbow ? 'rainbow-fill' : ''} />
+                                   <rect x="14" y="22" rx="4" ry="4" width={player.name.length * 14 + 12} height="22" fill="rgba(0,0,0,0.6)" />
+                                   <text x="20" y="37" fill="white" fontSize="13" fontWeight="bold">{player.name}</text>
                                 </g>
                             );
                         })}
-                        {explosions.map(ex => {
-                            const cell = localCells.find(c => c.id === ex.cellId);
-                            if (!cell) return null;
-                            const cx = cell.x * CELL_SIZE + CELL_SIZE / 2;
-                            const cy = cell.y * CELL_SIZE + CELL_SIZE / 2;
-                            return (
-                                <text key={ex.id} x={cx} y={cy} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE} className="anim-explosion select-none pointer-events-none">💥</text>
-                            )
+                        {!isGhostRace && ripples.map(r => {
+                            const player = playersList.find(p => p.id === r.uid); const color = player ? player.color : '#3b82f6'; const isRainbow = color === 'rainbow';
+                            return <circle key={r.id} cx={r.x} cy={r.y} r="20" fill="none" stroke={isRainbow ? undefined : color} className={`pointer-events-none ${isRainbow ? 'rainbow-stroke' : ''}`} style={{ transformOrigin: `${r.x}px ${r.y}px`, animation: 'rippleAnim 0.8s ease-out forwards' }} />;
                         })}
-                    </g>
-
-                    {/* 6. 最頂層：游標與橡皮擦 */}
-                    <circle ref={eraserRef} r="15" fill={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} fillOpacity="0.4" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeWidth="2" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke rainbow-fill' : ''}`} style={{ display: 'none' }} />
-
-                    {!isGhostRace && Object.entries(cursors).map(entry => {
-                        const uid = entry[0]; const pos = entry[1]; if (uid === myId) return null;
-                        const player = playersList.find(p => p.id === uid); if (!player) return null;
-                        const isRainbow = player.color === 'rainbow';
-                        return (
-                            <g key={`cursor-${uid}`} transform={`translate(${pos.x}, ${pos.y})`} className="pointer-events-none transition-transform duration-75 ease-linear">
-                               <path d="M0,0 L16,6 L10,10 L15,19 L11,21 L6,12 L0,18 Z" fill={isRainbow ? undefined : player.color} stroke="white" strokeWidth="2" className={isRainbow ? 'rainbow-fill' : ''} />
-                               <rect x="14" y="22" rx="4" ry="4" width={player.name.length * 14 + 12} height="22" fill="rgba(0,0,0,0.6)" />
-                               <text x="20" y="37" fill="white" fontSize="13" fontWeight="bold">{player.name}</text>
-                            </g>
-                        );
-                    })}
-                    {!isGhostRace && ripples.map(r => {
-                        const player = playersList.find(p => p.id === r.uid); const color = player ? player.color : '#3b82f6'; const isRainbow = color === 'rainbow';
-                        return <circle key={r.id} cx={r.x} cy={r.y} r="20" fill="none" stroke={isRainbow ? undefined : color} className={`pointer-events-none ${isRainbow ? 'rainbow-stroke' : ''}`} style={{ transformOrigin: `${r.x}px ${r.y}px`, animation: 'rippleAnim 0.8s ease-out forwards' }} />;
-                    })}
-                  </svg>
-                </div>
+                      </svg>
+                    </div>
+                )}
               </div>
 
               {((isWon && !isGhostRace) || (isGhostRace && winner)) && !hideVictoryModal && (
@@ -1906,7 +2025,9 @@
                         </div>
                     )}
                     <div className="flex justify-center gap-3 flex-wrap">
-                        <button onClick={requestRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
+                        {(!isSpectator || isHostRef.current) && (
+                            <button onClick={requestRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
+                        )}
                     </div>
                   </div>
                 </div>

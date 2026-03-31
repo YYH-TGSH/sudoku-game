@@ -387,6 +387,7 @@
 
       const [colorPickerTarget, setColorPickerTarget] = useState(null);
       const [colorSeq, setColorSeq] = useState([]);
+      const [editName, setEditName] = useState("");
 
       const [roomId, setRoomId] = useState("");
       const [isHost, setIsHost] = useState(false);
@@ -618,25 +619,27 @@
           const chars = cSizeDef.chars;
           
           for(let i=0; i<s; i++) {
-              if (!completedRegionsRef.current.has(`R${i}`)) {
-                  const rowCells = localCells.filter(c => c.y === i);
-                  if (rowCells.length === s && rowCells.every(c => c.value === solution[c.y][c.x])) {
-                      completedRegionsRef.current.add(`R${i}`); 
-                      if (!rowCells.every(c => c.isGiven)) newComps++;
+              if (s !== 4) { // 4x4 模式不發送行列宮的禮物
+                  if (!completedRegionsRef.current.has(`R${i}`)) {
+                      const rowCells = localCells.filter(c => c.y === i);
+                      if (rowCells.length === s && rowCells.every(c => c.value === solution[c.y][c.x])) {
+                          completedRegionsRef.current.add(`R${i}`); 
+                          if (!rowCells.every(c => c.isGiven)) newComps++;
+                      }
                   }
-              }
-              if (!completedRegionsRef.current.has(`C${i}`)) {
-                  const colCells = localCells.filter(c => c.x === i);
-                  if (colCells.length === s && colCells.every(c => c.value === solution[c.y][c.x])) {
-                      completedRegionsRef.current.add(`C${i}`); 
-                      if (!colCells.every(c => c.isGiven)) newComps++;
+                  if (!completedRegionsRef.current.has(`C${i}`)) {
+                      const colCells = localCells.filter(c => c.x === i);
+                      if (colCells.length === s && colCells.every(c => c.value === solution[c.y][c.x])) {
+                          completedRegionsRef.current.add(`C${i}`); 
+                          if (!colCells.every(c => c.isGiven)) newComps++;
+                      }
                   }
-              }
-              if (!completedRegionsRef.current.has(`B${i}`)) {
-                  const boxCells = localCells.filter(c => c.boxId === i);
-                  if (boxCells.length === s && boxCells.every(c => c.value === solution[c.y][c.x])) {
-                      completedRegionsRef.current.add(`B${i}`); 
-                      if (!boxCells.every(c => c.isGiven)) newComps++;
+                  if (!completedRegionsRef.current.has(`B${i}`)) {
+                      const boxCells = localCells.filter(c => c.boxId === i);
+                      if (boxCells.length === s && boxCells.every(c => c.value === solution[c.y][c.x])) {
+                          completedRegionsRef.current.add(`B${i}`); 
+                          if (!boxCells.every(c => c.isGiven)) newComps++;
+                      }
                   }
               }
           }
@@ -880,6 +883,7 @@
           
           if (partial.sizeId !== undefined) {
               setSizeId(partial.sizeId);
+              setKeyMapping(SIZES.find(s => s.id === partial.sizeId).chars);
           }
           if (partial.diffId !== undefined) setDiffId(partial.diffId);
           if (partial.strokes !== undefined) setStrokes(partial.strokes);
@@ -991,6 +995,7 @@
           if (targetIdx === -1) return;
           const target = cur[targetIdx];
           
+          // 只有玩家自己填上的數字能被長按清除，題目或收禮系統填的不能清
           if (target.isGiven || target.isSystemRevealed || target.value === null) return;
           
           if (engineRef.current === 'none') setHistory(past => [...past.slice(past.length > 25 ? 1 : 0), cur]);
@@ -1016,6 +1021,7 @@
         } else {
             setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: myId, x: pt.x, y: pt.y, timestamp: Date.now() }]);
             
+            // 設定長按清除偵測
             const cx = Math.floor((pt.x - PADDING) / CELL_SIZE);
             const cy = Math.floor((pt.y - PADDING) / CELL_SIZE);
             if (cx >= 0 && cx < cSizeDef.size && cy >= 0 && cy < cSizeDef.size) {
@@ -1027,7 +1033,7 @@
                     isLongPressTriggered.current = true;
                     if (navigator.vibrate) navigator.vibrate(50);
                     cellLongPressTimer.current = null;
-                }, 500); 
+                }, 500); // 500毫秒視為長按
             }
         }
         
@@ -1043,6 +1049,7 @@
         if (interactionMode === 2) {
             if (drawSubMode === 'eraser') { if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; } if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); } } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) { currentPathDataRef.current += ` L ${pt.x} ${pt.y}`; if (drawingPathRef.current) drawingPathRef.current.setAttribute('d', currentPathDataRef.current); }
         } else {
+            // 防手震：如果移動超過10px就取消長按判定
             if (cellLongPressTimer.current && touchStartPt.current && pt) {
                 const dist = Math.hypot(pt.x - touchStartPt.current.x, pt.y - touchStartPt.current.y);
                 if (dist > 10) {
@@ -1450,11 +1457,22 @@
           } else {
             const snap = await Promise.race([getDoc(rDoc), timeout(6000)]);
             if (!snap.exists()) { setIsConnecting(false); switchToOffline(); return showToast("⚠️ 找不到該對局大廳，請確認代碼"); }
+            
+            // 檢查名稱是否重複
+            let pList = snap.data().players || []; 
+            if (pList.some(p => p.name === pName && p.id !== myId)) {
+                setIsConnecting(false);
+                switchToOffline();
+                setScreen('join');
+                return showToast("⚠️ 該名稱已被使用，請換一個名稱");
+            }
+            
             setIsHost(false); isHostRef.current = false;
             const gs = snap.data().gameState;
             const isSpec = gs && gs.isGhostRace && gs.matchPhase === 'playing';
             setIsSpectator(isSpec);
-            let pList = snap.data().players || []; const meIndex = pList.findIndex(p => p.id === myId);
+            
+            const meIndex = pList.findIndex(p => p.id === myId);
             if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: !(gs && gs.isGhostRace), isSpectator: isSpec }); else { pList[meIndex].name = pName; pList[meIndex].isSpectator = isSpec; }
             await Promise.race([updateDoc(rDoc, { players: pList, updatedAt: Date.now() }), timeout(6000)]);
           }
@@ -1468,7 +1486,7 @@
               if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
               if (gs.startTime) { setStartTime(gs.startTime); setMatchStartTime(gs.startTime); } if (gs.strokes !== undefined) setStrokes(gs.strokes);
               if (gs.matchPhase !== undefined) setMatchPhase(gs.matchPhase); if (gs.countdownTarget !== undefined) setCountdownTarget(gs.countdownTarget);
-              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); } }
+              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
               if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar); if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace); if (gs.winner !== undefined) setWinner(gs.winner);
               if (gs.keyMapping !== undefined) setKeyMapping(gs.keyMapping);
@@ -1501,6 +1519,12 @@
                 connsRef.current.push(c);
                 c.on('data', function(m) {
                   if (m.type === 'JOIN') {
+                      // 檢查名稱是否重複
+                      if (playersListRef.current.some(p => p.name === m.pName && p.id !== m.uid)) {
+                          c.send({ type: 'JOIN_REJECTED', reason: 'name_conflict' });
+                          return;
+                      }
+                      
                       c.uid = m.uid; 
                       const isSpec = stateRef.current.isGhostRace && stateRef.current.matchPhase === 'playing';
                       setPlayersList(prev => { 
@@ -1518,6 +1542,11 @@
                   } else if (m.type === 'GHOST_SOLVED') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
                   } else if (m.type === 'GHOST_I_WON' && stateRef.current.isGhostRace && !stateRef.current.winner) { const player = playersListRef.current.find(pl => pl.id === c.uid); if(player){ const winInfo = { id: c.uid, name: player.name, color: player.color, time: formatTime(Math.floor((m.time - stateRef.current.startTime)/1000)) }; setWinner(winInfo); connsRef.current.forEach(conn => conn.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
                   } else if (m.type === 'REQ_COLOR_CHANGE') { setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+                  } else if (m.type === 'REQ_NAME_CHANGE') { 
+                      const nameExists = playersListRef.current.some(p => p.name === m.name && p.id !== m.targetId);
+                      if (!nameExists) {
+                          setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, name: m.name } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+                      }
                   } else if (m.type === 'CURSOR') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setCursors(prev => ({ ...prev, [m.uid]: { x: m.x, y: m.y } }));
                   } else if (m.type === 'CLICK') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setRipples(prev => [...prev, { id: Date.now() + Math.random(), uid: m.uid, x: m.x, y: m.y, timestamp: Date.now() }]);
                   } else if (m.type === 'RECEIVE_GIFT') {
@@ -1542,7 +1571,10 @@
                 const c = guestP.connect('yyh-tgsh-' + rId + '-host'); connRef.current = c;
                 c.on('open', function() { setIsHost(false); isHostRef.current = false; setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); c.send({ type: 'JOIN', pName: pName || "玩家", uid: myId, color: myColorRef.current }); });
                 c.on('data', function(m) {
-                  if (m.type === 'INIT') { if (m.isSpectator !== undefined) setIsSpectator(m.isSpectator); if (m.players) setPlayersList(m.players); if (m.data) { if(m.data.solutionGrid) solutionGridRef.current = m.data.solutionGrid; syncState({ ...m.data, localCells: JSON.parse(JSON.stringify(m.data.localCells || m.data.cells)) }, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); } }
+                  if (m.type === 'JOIN_REJECTED') {
+                      if (m.reason === 'name_conflict') { showToast("⚠️ 該名稱已被使用，請換一個名稱"); switchToOffline(); setScreen('join'); }
+                  }
+                  else if (m.type === 'INIT') { if (m.isSpectator !== undefined) setIsSpectator(m.isSpectator); if (m.players) setPlayersList(m.players); if (m.data) { if(m.data.solutionGrid) solutionGridRef.current = m.data.solutionGrid; syncState({ ...m.data, localCells: JSON.parse(JSON.stringify(m.data.localCells || m.data.cells)) }, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); } }
                   else if (m.type === 'SYNC') { syncState(m.data, false); if(m.data.isGhostRace && m.data.startTime) setMatchStartTime(m.data.startTime); }
                   else if (m.type === 'PLAYERS_UPDATE') { if (m.players) setPlayersList(m.players); }
                   else if (m.type === 'GHOST_SOLVED') { setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); }
@@ -1576,6 +1608,28 @@
         else if (engineRef.current === 'peerjs') { if (isHostRef.current) setPlayersList(prev => { const nList = prev.map(p => p.id === playerId ? { ...p, color: newColor } : p); connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; }); else if (connRef.current) connRef.current.send({ type: 'REQ_COLOR_CHANGE', targetId: playerId, color: newColor }); }
       };
 
+      const handlePlayerNameChange = (playerId, newName) => {
+        if (playerId === myId) {
+            setTempPlayerName(newName);
+        }
+        if (engineRef.current === 'none') {
+            setPlayersList(prev => prev.map(p => p.id === playerId ? { ...p, name: newName } : p));
+        } else if (engineRef.current === 'firebase' && roomRef.current) {
+            const nList = playersListRef.current.map(p => p.id === playerId ? { ...p, name: newName } : p);
+            setPlayersList(nList);
+            updateDoc(roomRef.current, { players: nList }).catch(e => {});
+        } else if (engineRef.current === 'peerjs') {
+            if (isHostRef.current) {
+                const nList = playersListRef.current.map(p => p.id === playerId ? { ...p, name: newName } : p);
+                setPlayersList(nList);
+                connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
+            } else if (connRef.current) {
+                connRef.current.send({ type: 'REQ_NAME_CHANGE', targetId: playerId, name: newName });
+            }
+        }
+        showToast("✅ 暱稱修改成功！");
+      };
+
       if (screen === 'home') {
         return (
           <div className="h-screen w-screen flex flex-col items-center justify-center p-4 relative overflow-hidden animate-fadeIn">
@@ -1594,7 +1648,7 @@
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.5.7)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v2.6.3)</div>
           </div>
         );
       }
@@ -1640,7 +1694,7 @@
           
           {/* === 幽靈賽：等待全員準備 UI === */}
           {matchPhase === 'waiting' && !isGenerating && (
-              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm pointer-events-auto animate-fadeIn p-4">
+              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/80 backdrop-blur-md pointer-events-auto animate-fadeIn p-4">
                   <div className="bg-white rounded-2xl p-8 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] text-center min-w-[320px] max-w-md w-full">
                       <h2 className="text-3xl font-black text-slate-800 mb-6">等待所有人同意</h2>
                       <div className="flex flex-col gap-3 mb-8">
@@ -1743,7 +1797,16 @@
                   const pct = isGhostRace ? (ghostProgress[p.id] || 0) : ((playerProgress.find(x => x.uid === p.id) || {pct: 0}).pct || 0);
                   
                   return (
-                    <div key={idx} className={`shrink-0 flex flex-col gap-0.5 border-2 border-slate-800 rounded px-1.5 py-0.5 relative cursor-pointer hover:bg-slate-100 transition-colors ${p.isSpectator ? 'opacity-60 bg-slate-100' : 'bg-white'}`} onClick={() => setColorPickerTarget(prev => prev === p.id ? null : p.id)} title={isMe ? "點擊切換顏色" : "點擊為玩家換色"}>
+                    <div key={idx} className={`shrink-0 flex flex-col gap-0.5 border-2 border-slate-800 rounded px-1.5 py-0.5 relative cursor-pointer hover:bg-slate-100 transition-colors ${p.isSpectator ? 'opacity-60 bg-slate-100' : 'bg-white'}`} 
+                         onClick={() => {
+                             if(isMe || isHostRef.current) {
+                                 setEditName(p.name);
+                                 setColorPickerTarget(p.id);
+                             } else {
+                                 showToast("⚠️ 只有房主可以更改其他玩家的設定！");
+                             }
+                         }} 
+                         title={isMe ? "點擊修改設定" : (isHostRef.current ? "房主可修改他人設定" : "無法修改他人設定")}>
                       <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-[1px]" style={{backgroundColor: isRainbow ? 'transparent' : p.color}}>
                           {isRainbow && <svg className="absolute inset-0 w-full h-full pointer-events-none"><rect width="100%" height="100%" fill="url(#rainbowGrad)" /></svg>}
                       </div>
@@ -1798,11 +1861,10 @@
                 </div>
               )}
 
-              {/* 頂部數字鍵盤：套用干擾洗牌邏輯與翻轉特效 (單行橫向滾動) */}
+              {/* 頂部數字鍵盤：套用干擾洗牌邏輯與翻轉特效 (自動縮放，不需滾動) */}
               {!isSpectator && (
-                  <div className="flex flex-nowrap gap-1.5 md:gap-2 justify-start md:justify-center w-full px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 overflow-x-auto hide-scrollbar select-none" style={{ perspective: '1000px' }}>
+                  <div className="flex flex-nowrap gap-0.5 sm:gap-1 md:gap-2 justify-center w-full px-1 sm:px-2 py-2 md:py-3 bg-[#f8fafc] border-b-[3px] border-slate-800 shrink-0 shadow-[0_4px_10px_rgba(0,0,0,0.05)] z-20 select-none" style={{ perspective: '1000px' }}>
                      {keyMapping.map((c, idx) => {
-                        // 使用實際的數字來判斷是否完成
                         const isCompleted = completedChars.has(c);
                         const isFlipping = flippedKeys.includes(idx);
                         
@@ -1811,10 +1873,10 @@
                                key={`keybtn-${idx}`}
                                onClick={(e) => { onNumClick(e, c); }}
                                title={isCompleted ? `已經填滿 ${c}` : `點擊選取 ${c}`}
-                               className={`select-none w-9 h-9 sm:w-10 sm:h-10 md:w-12 md:h-12 rounded-xl text-lg sm:text-xl md:text-2xl font-black border-[3px] border-slate-800 flex items-center justify-center shrink-0 key-btn
+                               className={`select-none flex-1 min-w-[18px] max-w-[48px] aspect-square rounded-md sm:rounded-lg md:rounded-xl text-[10px] sm:text-base md:text-2xl font-black border-2 md:border-[3px] border-slate-800 flex items-center justify-center p-0 key-btn
                                ${isFlipping ? 'anim-key-flip' : ''}
                                ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none' : 
-                                 selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
+                                 selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[2px_2px_0px_rgba(30,41,59,1)] sm:shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[1px_1px_0px_rgba(30,41,59,1)] sm:shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
                                ${!isCompleted && !isFlipping ? 'active:translate-y-1 active:shadow-none' : ''}`}
                             >
                                {c}
@@ -2037,7 +2099,6 @@
                                        onPointerDown={(e) => handleGiftClick(e, gift.id)} 
                                        className="cursor-pointer"
                                     >
-                                        {/* 修正：移除 pointer-events-none 改為 pointer-events-auto 確保能接收點擊 */}
                                         <rect width={CELL_SIZE} height={CELL_SIZE} fill="#fef08a" stroke="#ca8a04" strokeWidth="3" rx="8" className="pointer-events-auto hover:brightness-95 transition-all" />
                                         <text x={CELL_SIZE/2} y={CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight="900" fill="#1e293b" className="select-none pointer-events-none">
                                             {cell.value}
@@ -2109,17 +2170,35 @@
             </div>
           </div>
 
-          {/* === 獨立選色面板 (防止在滾動區域內被裁切) === */}
+          {/* === 獨立選色/設定面板 === */}
           {colorPickerTarget && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm pointer-events-auto animate-fadeIn" onClick={(e) => { e.stopPropagation(); setColorPickerTarget(null); setColorSeq([]); }}>
-              <div className="bg-[#fffdfa] border-[3px] border-slate-800 rounded-xl p-4 shadow-[8px_8px_0px_rgba(30,41,59,1)] animate-popUpCenter max-w-[280px]" onClick={e => e.stopPropagation()}>
+              <div className="bg-[#fffdfa] border-[3px] border-slate-800 rounded-xl p-4 shadow-[8px_8px_0px_rgba(30,41,59,1)] animate-popUpCenter max-w-[280px] w-full mx-4" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-3 border-b-2 border-slate-800 pb-2">
-                  <h3 className="text-sm font-black text-slate-800">🎨 為 {(playersList.find(p=>p.id===colorPickerTarget) || {}).name} 換色</h3>
+                  <h3 className="text-sm font-black text-slate-800">⚙️ 個人設定</h3>
                   <button onClick={() => { setColorPickerTarget(null); setColorSeq([]); }} className="text-slate-400 hover:text-slate-800 font-black text-lg leading-none">✕</button>
                 </div>
+                
+                <div className="mb-4">
+                  <label className="block text-[10px] md:text-xs font-bold text-slate-600 mb-1">修改暱稱：</label>
+                  <div className="flex gap-2">
+                     <input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder="輸入新暱稱" className="w-full border-2 border-slate-800 rounded px-2 py-1 text-xs font-bold outline-none focus:ring-1 ring-[#ffcc00]" />
+                     <button onClick={(e) => {
+                         e.stopPropagation();
+                         const newName = editName.trim();
+                         if (!newName) return showToast("⚠️ 暱稱不能為空");
+                         if (playersList.some(p => p.name === newName && p.id !== colorPickerTarget)) return showToast("⚠️ 此暱稱已被其他人使用");
+                         handlePlayerNameChange(colorPickerTarget, newName);
+                         setColorPickerTarget(null);
+                         setColorSeq([]);
+                     }} className="bg-blue-500 text-white font-bold text-[10px] md:text-xs px-3 rounded border-2 border-slate-800 hover:bg-blue-600 active:translate-y-[1px] whitespace-nowrap">儲存</button>
+                  </div>
+                </div>
+
+                <label className="block text-[10px] md:text-xs font-bold text-slate-600 mb-1">修改代表色：</label>
                 <div className="grid grid-cols-5 gap-2">
                   {COLORS.map(color => (
-                    <button key={color} onClick={(e) => { e.stopPropagation(); const colorIdx = COLORS.indexOf(color); let newSeq = [...colorSeq, colorIdx]; const targetSeq = [0, 4, 15, 19]; let isValid = true; for (let i = 0; i < newSeq.length; i++) { if (newSeq[i] !== targetSeq[i]) { isValid = false; break; } } if (isValid) { setColorSeq(newSeq); if (newSeq.length === 4) { handlePlayerColorChange(colorPickerTarget, 'rainbow'); setColorPickerTarget(null); showToast("🌈 解鎖隱藏彩色漸變！"); setColorSeq([]); } else handlePlayerColorChange(colorPickerTarget, color); } else { setColorSeq([]); handlePlayerColorChange(colorPickerTarget, color); setColorPickerTarget(null); } }} className="w-8 h-8 rounded-full border-[2px] border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] hover:scale-110 hover:shadow-[3px_3px_0px_rgba(30,41,59,1)] transition-all active:scale-95 active:shadow-none" style={{ backgroundColor: color }} title={color} />
+                    <button key={color} onClick={(e) => { e.stopPropagation(); const colorIdx = COLORS.indexOf(color); let newSeq = [...colorSeq, colorIdx]; const targetSeq = [0, 4, 15, 19]; let isValid = true; for (let i = 0; i < newSeq.length; i++) { if (newSeq[i] !== targetSeq[i]) { isValid = false; break; } } if (isValid) { setColorSeq(newSeq); if (newSeq.length === 4) { handlePlayerColorChange(colorPickerTarget, 'rainbow'); setColorPickerTarget(null); showToast("🌈 解鎖隱藏彩色漸變！"); setColorSeq([]); } else handlePlayerColorChange(colorPickerTarget, color); } else { setColorSeq([]); handlePlayerColorChange(colorPickerTarget, color); setColorPickerTarget(null); } }} className="w-8 h-8 rounded-full border-[2px] border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] hover:scale-110 hover:shadow-[3px_3px_0px_rgba(30,41,59,1)] transition-all active:scale-95 active:shadow-none mx-auto" style={{ backgroundColor: color }} title={color} />
                   ))}
                 </div>
               </div>

@@ -88,6 +88,25 @@
   </style>
 </head>
 <body>
+<script>
+window.addEventListener('error', function(e) {
+  var d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:red;color:white;width:100%;height:100%;padding:20px;font-size:24px;overflow:auto;word-wrap:break-word;white-space:pre-wrap;text-align:left;line-height:1.5;';
+  d.innerHTML = '<h2>Application Error</h2>' + String(e.message) + '<br/>At ' + e.filename + ':' + e.lineno + '<br/><br/><pre>' + (e.error ? e.error.stack : '') + '</pre>';
+  document.body.appendChild(d);
+});
+var oldErr = console.error;
+console.error = function() {
+  oldErr.apply(console, arguments);
+  var str = Array.from(arguments).map(String).join(" ");
+  if (str.includes("SyntaxError") || str.includes("Babel") || str.includes("Warning")) {
+    var d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:red;color:white;width:100%;height:100%;padding:20px;font-size:20px;overflow:auto;word-wrap:break-word;white-space:pre-wrap;text-align:left;font-family:monospace;';
+    d.innerHTML = '<h2>Console Error</h2>' + encodeURIComponent(str).replace(/%[A-Z0-9]{2}/g, function() {return" "});
+    document.body.appendChild(d);
+  }
+};
+</script>
 
   <div id="root"></div>
 
@@ -319,7 +338,7 @@
       const playerIdRef = useRef(Math.random().toString(36).substring(2, 12));
       const myId = playerIdRef.current;
       const myNameRef = useRef("");
-      const myColorRef = useRef(COLORS[11]); 
+      const myColorRef = useRef(COLORS[Math.floor(Math.random() * COLORS.length)]); 
 
       const emptyLevelData = { sizeDef: SIZES[1], diffDef: DIFFICULTIES[1], cells: [] };
       const initialDataRef = useRef(emptyLevelData);
@@ -338,6 +357,10 @@
       const solutionGridRef = useRef(null); 
       const [ghostHints, setGhostHints] = useState({}); 
       const [isGhostRace, setIsGhostRace] = useState(false);
+      const [isBrawlMode, setIsBrawlMode] = useState(false);
+      const [brawlWinners, setBrawlWinners] = useState([]);
+      const [brawlSettings, setBrawlSettings] = useState({ winnersCount: 3, allowQuickFill: false, allowTraversal: false, allowYellowHint: false, hideAnswers: true });
+      const [showBrawlSettings, setShowBrawlSettings] = useState(false);
       const [winner, setWinner] = useState(null); 
       const isWinnerDeclaredRef = useRef(false);
 
@@ -421,7 +444,7 @@
       const unsubRef = useRef(null);
       const zoomContainerRef = useRef(null);
       const lastPinchDist = useRef(null);
-      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: [] });
+      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, isBrawlMode: false, brawlWinners: [], brawlSettings: { winnersCount: 3, allowQuickFill: false, allowTraversal: false, allowYellowHint: false, hideAnswers: true }, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: [] });
       
       const playersListRef = useRef([]);
 
@@ -431,6 +454,27 @@
       const drawingPathRef = useRef(null);
       const eraserRef = useRef(null);
       const lastEraseTimeRef = useRef(0);
+      const handleBrawlWinRef = useRef(null);
+
+      handleBrawlWinRef.current = (winInfo) => {
+          if (!stateRef.current.isBrawlMode) return;
+          if (stateRef.current.brawlWinners.some(w => w.id === winInfo.id)) return;
+          
+          const newWinners = [...stateRef.current.brawlWinners, winInfo];
+          const countLimit = stateRef.current.brawlSettings.winnersCount;
+          const activePlayersCount = playersListRef.current.filter(p => !p.isHost).length; 
+          const threshold = Math.min(countLimit, activePlayersCount || 999);
+          
+          if (newWinners.length >= threshold) {
+              const fakeWinnerObj = newWinners[0];
+              setWinner(fakeWinnerObj);
+              syncState({ brawlWinners: newWinners, matchPhase: 'finished', winner: fakeWinnerObj }, true);
+              if (engineRef.current === 'peerjs') connsRef.current.forEach(c => c.send({ type: 'SYNC', data: { brawlWinners: newWinners, matchPhase: 'finished', winner: fakeWinnerObj } }));
+          } else {
+              syncState({ brawlWinners: newWinners }, true);
+              if (engineRef.current === 'peerjs') connsRef.current.forEach(c => c.send({ type: 'SYNC', data: { brawlWinners: newWinners } }));
+          }
+      };
 
       const cSizeDef = levelData.sizeDef;
       const CELL_SIZE = 60;
@@ -544,7 +588,7 @@
         initAuth(); onAuthStateChanged(auth, function(u) { if(u) setUser(u); });
       }, []);
 
-      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget, keyMapping }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, winner, matchPhase, countdownTarget, keyMapping]);
+      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, isBrawlMode, brawlWinners, brawlSettings, winner, matchPhase, countdownTarget, keyMapping }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, isBrawlMode, brawlWinners, brawlSettings, winner, matchPhase, countdownTarget, keyMapping]);
 
       const conflictCellIds = useMemo(() => {
         const conflicts = new Set();
@@ -685,6 +729,7 @@
                   } else if (engineRef.current === 'firebase' && roomRef.current) {
                       const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
                       safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
+                      if (safeGameState.solutionGrid && Array.isArray(safeGameState.solutionGrid)) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
                       updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
                   }
                   
@@ -704,11 +749,32 @@
               if (isGhostRace) {
                   if (!isWinnerDeclaredRef.current) {
                       isWinnerDeclaredRef.current = true;
-                      const finishTime = Date.now(); setEndTime(finishTime); setMatchPhase('finished');
+                      const finishTime = Date.now();
+                      const isBrawl = stateRef.current.isBrawlMode;
+                      if (!isBrawl) { setEndTime(finishTime); setMatchPhase('finished'); }
+                      else { setIsSpectator(true); setMatchPhase('waiting'); showToast("🏁 恭喜完成！已進入觀戰模式"); }
+                      
                       const me = playersList.find(p => p.id === myId);
-                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)) };
-                      if (isHostRef.current) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
-                      else if (connRef.current) connRef.current.send({ type: 'GHOST_I_WON', time: finishTime });
+                      const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)), isBrawl };
+                      const msgId = Math.random().toString(36).substring(2, 10);
+                      const msg = { type: 'GHOST_I_WON', senderUid: myId, id: msgId, time: finishTime, winInfo };
+                      
+                      if (engineRef.current === 'peerjs') {
+                          if (isHostRef.current) {
+                              if (!isBrawl) { setWinner(winInfo); connsRef.current.forEach(c => c.send({ type: 'GHOST_WINNER', winner: winInfo })); }
+                              else if (handleBrawlWinRef.current) handleBrawlWinRef.current(winInfo);
+                          } else if (connRef.current) connRef.current.send(msg);
+                      } else if (engineRef.current === 'firebase' && roomRef.current) {
+                          const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
+                          safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
+                          if (safeGameState.solutionGrid && Array.isArray(safeGameState.solutionGrid)) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
+                          if (isHostRef.current) {
+                              if (!isBrawl) { safeGameState.winner = winInfo; updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{}); }
+                              else { updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{}); if (handleBrawlWinRef.current) handleBrawlWinRef.current(winInfo); }
+                          } else {
+                              updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
+                          }
+                      }
                   }
               } else {
                   if (!isWon) { setIsWon(true); setEndTime(Date.now()); setHideVictoryModal(false); setMatchPhase('finished'); }
@@ -812,6 +878,7 @@
           } else if (engineRef.current === 'firebase' && roomRef.current) {
               const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
               safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
+              if (safeGameState.solutionGrid && Array.isArray(safeGameState.solutionGrid)) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
               updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
           }
       };
@@ -868,10 +935,13 @@
 
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
-              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); }
+              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); setBrawlWinners([]); }
           }
           
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
+          if (partial.isBrawlMode !== undefined) setIsBrawlMode(partial.isBrawlMode);
+          if (partial.brawlWinners !== undefined) setBrawlWinners(partial.brawlWinners);
+          if (partial.brawlSettings !== undefined) setBrawlSettings(partial.brawlSettings);
           if (partial.winner !== undefined) setWinner(partial.winner);
           if (partial.keyMapping !== undefined) setKeyMapping(partial.keyMapping);
           
@@ -899,6 +969,9 @@
                   startTime: updatedState.startTime,
                   isGenerating: updatedState.isGenerating,
                   isGhostRace: updatedState.isGhostRace,
+                  isBrawlMode: updatedState.isBrawlMode,
+                  brawlWinners: updatedState.brawlWinners,
+                  brawlSettings: updatedState.brawlSettings,
                   winner: updatedState.winner,
                   solutionGrid: updatedState.solutionGrid ? JSON.stringify(updatedState.solutionGrid) : null,
                   sizeId: updatedState.sizeId,
@@ -1093,6 +1166,7 @@
       };
 
       const autoFillHiddenSingles = async (char) => {
+          if (stateRef.current.isBrawlMode && !stateRef.current.brawlSettings.allowQuickFill) { showToast("⚠️ 房主已關閉快速填答功能"); return; }
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true, selectedChar: char }, !isGhostRace);
@@ -1135,6 +1209,7 @@
       };
 
       const autoFillDrafts = async (char) => {
+          if (stateRef.current.isBrawlMode && !stateRef.current.brawlSettings.allowQuickFill) { showToast("⚠️ 房主已關閉快速填答功能"); return; }
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true, selectedChar: char }, !isGhostRace);
@@ -1155,6 +1230,7 @@
       };
 
       const runAutoFillCycle = async (startChar) => {
+          if (stateRef.current.isBrawlMode && !stateRef.current.brawlSettings.allowTraversal) { showToast("⚠️ 房主已關閉循環功能"); return; }
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true }, !isGhostRace);
@@ -1212,11 +1288,13 @@
               if (!isCompleted) setSelectedChar(prev => prev === c ? null : c);
           } else if (tracker.count === 2) {
               if (!isCompleted) {
-                  if (isGhostRace) { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); tracker.count = 0; } 
+                  const isGhostBlocked = isGhostRace && !(stateRef.current.isBrawlMode && stateRef.current.brawlSettings.allowQuickFill);
+                  if (isGhostBlocked) { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); tracker.count = 0; } 
                   else { if (interactionMode === 0) autoFillHiddenSingles(c); else if (interactionMode === 1) autoFillDrafts(c); }
               }
           } else if (tracker.count === 5) {
-              if (!isGhostRace) { if (interactionMode === 0) runAutoFillCycle(c); else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用"); } 
+              const isGhostBlocked = isGhostRace && !(stateRef.current.isBrawlMode && stateRef.current.brawlSettings.allowTraversal);
+              if (!isGhostBlocked) { if (interactionMode === 0) runAutoFillCycle(c); else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用"); } 
               else { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); }
               tracker.count = 0; 
           }
@@ -1373,25 +1451,34 @@
         setIsWon(false); setEndTime(null); setSelectedChar(null);
       };
 
-      const generateAndSync = (sId, dId, ghostMode) => {
+      const generateAndSync = (sId, dId, nextMode) => {
         if (isAutoFillingRef.current) return;
-        setIsGenerating(true); setWinner(null); isWinnerDeclaredRef.current = false; setGhostHints({}); setBoardGifts([]);
-        const isGR = ghostMode !== undefined ? ghostMode : stateRef.current.isGhostRace;
+        setIsGenerating(true); setWinner(null); isWinnerDeclaredRef.current = false; setGhostHints({}); setBoardGifts([]); setBrawlWinners([]);
+        
+        let targetMode = nextMode;
+        if (targetMode === undefined) {
+             targetMode = stateRef.current.isBrawlMode ? 'brawl' : stateRef.current.isGhostRace ? 'ghost' : 'coop';
+        }
+        const isGR = targetMode === 'ghost' || targetMode === 'brawl';
+        const isBrawl = targetMode === 'brawl';
         
         syncState({ 
             isGenerating: true, 
             isGhostRace: isGR, 
+            isBrawlMode: isBrawl,
             winner: null, 
-            matchPhase: isGR ? 'waiting' : 'playing', 
+            matchPhase: (engineRef.current !== 'none') ? 'waiting' : 'playing', 
             countdownTarget: null,
-            giftEvents: []
+            giftEvents: [],
+            brawlWinners: []
         }, true);
         
         setPlayersList(prev => {
-            const nList = prev.map(p => ({ ...p, isReady: !isGR, isSpectator: false }));
-            setIsSpectator(false);
-            if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { players: nList }).catch(e=>e);
-            else if (engineRef.current === 'peerjs' && isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
+            // 保留舊版玩家列表，只更新必要欄位（避免切換模式瞬間玩家消失）
+            const nList = prev.map(p => ({ ...p, isReady: (engineRef.current === 'none'), isSpectator: (isBrawl && p.isHost) ? true : false }));
+            if (isBrawl && isHostRef.current) setIsSpectator(true); else setIsSpectator(false);
+            // Firebase: 切換模式時不動 players 欄位，只更新 gameState，避免競態覆蓋玩家列表
+            if (engineRef.current === 'peerjs' && isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
             return nList;
         });
 
@@ -1400,7 +1487,7 @@
             generateSudokuAsync(sId, dId, setGenProgress).then(newData => {
                 let solution = null; if (isGR) solution = getSolutionGrid(newData.cells, newData.sizeDef);
                 const initLocalCells = JSON.parse(JSON.stringify(newData.cells)); const now = Date.now();
-                syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: now, isGhostRace: isGR, winner: null, solutionGrid: solution, isGenerating: false, selectedChar: null, keyMapping: newData.sizeDef.chars }, true);
+                syncState({ sizeId: sId, diffId: dId, levelData: newData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: now, isGhostRace: isGR, isBrawlMode: isBrawl, winner: null, solutionGrid: solution, isGenerating: false, selectedChar: null, keyMapping: newData.sizeDef.chars }, true);
                 setIsWon(false); setHistory([]); if (sId !== sizeId) { setZoomLevel(1); setZoomModeIdx(0); } 
                 setEndTime(null); setHideVictoryModal(false); setSelectedChar(null); setGenProgress("");
             });
@@ -1408,29 +1495,29 @@
       };
 
       const handleRegenerateRandomRef = useRef();
-      handleRegenerateRandomRef.current = () => { generateAndSync(stateRef.current.sizeId, stateRef.current.diffId, stateRef.current.isGhostRace); };
+      handleRegenerateRandomRef.current = () => { generateAndSync(stateRef.current.sizeId, stateRef.current.diffId); };
       
-      const handleSizeChange = (e) => { generateAndSync(Number(e.target.value), stateRef.current.diffId, stateRef.current.isGhostRace); };
-      const handleDiffChange = (e) => { generateAndSync(stateRef.current.sizeId, e.target.value, stateRef.current.isGhostRace); };
+      const handleSizeChange = (e) => { generateAndSync(Number(e.target.value), stateRef.current.diffId); };
+      const handleDiffChange = (e) => { generateAndSync(stateRef.current.sizeId, e.target.value); };
       const handleRegenerateRandom = () => { if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current(); };
       const closeVictoryModal = () => { setIsClosingModal(true); setTimeout(() => { setHideVictoryModal(true); setIsClosingModal(false); }, 300); };
       
       const switchToOffline = () => {
         if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
         setEngine('none'); engineRef.current = 'none'; setIsHost(false); isHostRef.current = false; setRoomId(""); roomRef.current = null; connsRef.current = []; connRef.current = null; setCursors({}); setRipples([]); setInteractionMode(0);
-        setIsGhostRace(false); setIsSpectator(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); processedEventsRef.current.clear();
-        setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: COLORS[11], isReady: false, isSpectator: false }]);
+        setIsGhostRace(false); setIsBrawlMode(false); setBrawlWinners([]); setIsSpectator(false); setLocalCells([]); solutionGridRef.current = null; setWinner(null); setGhostHints({}); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); processedEventsRef.current.clear();
+        setPlayersList([{ id: myId, name: tempPlayerName.trim() || "單機玩家", isHost: true, color: myColorRef.current, isReady: false, isSpectator: false }]);
       };
 
-      const startSinglePlayer = () => { switchToOffline(); setScreen('game'); setIsHeaderCollapsed(false); generateAndSync(sizeId, diffId, false); };
+      const startSinglePlayer = () => { switchToOffline(); setScreen('game'); setIsHeaderCollapsed(false); generateAndSync(sizeId, diffId, 'coop'); };
 
       const initiateHostGame = async () => {
         const pName = tempPlayerName.trim(); if (!pName) return showToast("⚠️ 請先設定顯示暱稱"); setIsConnecting(true); setIsGenerating(true); syncState({ isGenerating: true }, false);
         await new Promise(r => setTimeout(r, 50));
         const initialLevelData = await generateSudokuAsync(sizeId, diffId, setGenProgress);
-        let solution = null; if (isGhostRace) solution = getSolutionGrid(initialLevelData.cells, initialLevelData.sizeDef);
+        let solution = null; // 預設進房是coop，不用算解答但如果之後預設要改這也要改
         const initLocalCells = JSON.parse(JSON.stringify(initialLevelData.cells));
-        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution, matchPhase: isGhostRace ? 'waiting' : 'playing', countdownTarget: null, giftEvents: [], keyMapping: initialLevelData.sizeDef.chars }, false);
+        syncState({ levelData: initialLevelData, cells: initLocalCells, localCells: initLocalCells, strokes: [], startTime: Date.now(), isGenerating: false, selectedChar: null, solutionGrid: solution, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: initialLevelData.sizeDef.chars }, false);
         setIsGenerating(false); setBoardGifts([]); completedRegionsRef.current.clear(); processedEventsRef.current.clear();
         const rId = Math.floor(1000 + Math.random() * 9000).toString(); const finalId = stableMode ? "S" + rId : rId;
         if (stableMode) { setEngine('firebase'); engineRef.current = 'firebase'; await setupFirebase(finalId, pName, true); } 
@@ -1453,7 +1540,7 @@
             setIsHost(true); isHostRef.current = true; setIsSpectator(false);
             const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
             if (safeGameState.solutionGrid) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
-            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: !isGhostRace, isSpectator: false}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
+            await Promise.race([setDoc(rDoc, { hostId: myId, players: [{id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: false, isSpectator: false}], gameState: safeGameState, updatedAt: Date.now() }), timeout(6000)]);
           } else {
             const snap = await Promise.race([getDoc(rDoc), timeout(6000)]);
             if (!snap.exists()) { setIsConnecting(false); switchToOffline(); return showToast("⚠️ 找不到該對局大廳，請確認代碼"); }
@@ -1469,18 +1556,19 @@
             
             setIsHost(false); isHostRef.current = false;
             const gs = snap.data().gameState;
-            const isSpec = gs && gs.isGhostRace && gs.matchPhase === 'playing';
+            // 大亂鬥或幽靈賽進行中加入的玩家都設為觀戰者
+            const isSpec = gs && (gs.isGhostRace || gs.isBrawlMode) && gs.matchPhase === 'playing';
             setIsSpectator(isSpec);
             
             const meIndex = pList.findIndex(p => p.id === myId);
-            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: !(gs && gs.isGhostRace), isSpectator: isSpec }); else { pList[meIndex].name = pName; pList[meIndex].isSpectator = isSpec; }
+            if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: false, isSpectator: isSpec }); else { pList[meIndex].name = pName; pList[meIndex].isSpectator = isSpec; }
             await Promise.race([updateDoc(rDoc, { players: pList, updatedAt: Date.now() }), timeout(6000)]);
           }
           setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false);
           unsubRef.current = onSnapshot(rDoc, function(docSnap) {
             if (!docSnap.exists()) { showToast("⚠️ 房主已斷線，切換為單機模式"); switchToOffline(); return; }
             const data = docSnap.data(); const serverPlayers = data.players || []; setPlayersList(serverPlayers);
-            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current, isReady: !stateRef.current.isGhostRace, isSpectator: false }] }).catch(e => {});
+            if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current, isReady: false, isSpectator: false }] }).catch(e => {});
             if (data.gameState) {
               const gs = data.gameState;
               if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
@@ -1492,6 +1580,9 @@
               if (gs.keyMapping !== undefined) setKeyMapping(gs.keyMapping);
               if (gs.solutionGrid !== undefined) { const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid; solutionGridRef.current = parsedGrid; gs.solutionGrid = parsedGrid; }
               if (gs.sizeId !== undefined) { setSizeId(gs.sizeId); } if (gs.diffId !== undefined) setDiffId(gs.diffId);
+              if (gs.isBrawlMode !== undefined) setIsBrawlMode(gs.isBrawlMode);
+              if (gs.brawlSettings !== undefined) setBrawlSettings(gs.brawlSettings);
+              if (gs.brawlWinners !== undefined) setBrawlWinners(gs.brawlWinners);
               if (gs.giftEvents) {
                   gs.giftEvents.forEach(ev => {
                       if (!processedEventsRef.current.has(ev.id)) {
@@ -1500,11 +1591,16 @@
                               if (handleReceiveGiftRef.current) handleReceiveGiftRef.current(ev);
                           } else if (ev.type === 'GIFT_COUNTER_ATTACK' && ev.targetUid === myId) {
                               if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current();
+                          } else if (ev.type === 'GHOST_I_WON' && isHostRef.current && gs.isGhostRace && !stateRef.current.winner) {
+                              if (ev.winInfo.isBrawl && handleBrawlWinRef.current) { handleBrawlWinRef.current(ev.winInfo); }
+                              else if (!ev.winInfo.isBrawl) { setWinner(ev.winInfo); updateDoc(roomRef.current, { "gameState.winner": ev.winInfo }).catch(e=>{}); }
+                          } else if (ev.type === 'GHOST_SOLVED') {
+                              setGhostHints(prev => ({ ...prev, [ev.cellId]: { ...(prev[ev.cellId]||{}), [ev.uid]: ev.color } }));
                           }
                       }
                   });
               }
-              stateRef.current = gs;
+              stateRef.current = { ...stateRef.current, ...gs };
             }
           }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
         } catch(e) { setIsConnecting(false); switchToOffline(); showToast(e.message === "TIMEOUT" ? "⚠️ 連線逾時！請確認權限" : "⚠️ 雲端連線失敗"); }
@@ -1514,7 +1610,7 @@
         if (isCreating) {
             const p = new Peer('yyh-tgsh-' + rId + '-host'); peerRef.current = p;
             p.on('open', function() {
-              setIsHost(true); isHostRef.current = true; setIsSpectator(false); setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: !stateRef.current.isGhostRace, isSpectator: false }]);
+              setIsHost(true); isHostRef.current = true; setIsSpectator(false); setRoomId(rId); setScreen('game'); setIsHeaderCollapsed(false); setIsConnecting(false); setPlayersList([{ id: myId, name: pName, isHost: true, color: getAvailableColor([]), isReady: false, isSpectator: false }]);
               p.on('connection', function(c) {
                 connsRef.current.push(c);
                 c.on('data', function(m) {
@@ -1526,11 +1622,13 @@
                       }
                       
                       c.uid = m.uid; 
-                      const isSpec = stateRef.current.isGhostRace && stateRef.current.matchPhase === 'playing';
+                      // 大亂鬥或幽靈賽進行中加入的玩家都設為觀戰者
+                      const isSpec = (stateRef.current.isGhostRace || stateRef.current.isBrawlMode) && stateRef.current.matchPhase === 'playing';
                       setPlayersList(prev => { 
                           let nList; 
                           if (prev.find(pl => pl.id === m.uid)) nList = prev.map(pl => pl.id === m.uid ? { ...pl, name: m.pName, isSpectator: isSpec } : pl); 
-                          else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: m.color || getAvailableColor(prev), isReady: !stateRef.current.isGhostRace, isSpectator: isSpec }]; 
+                          // 主機端主動分配不重複顏色，忽略客戶端傳來的顏色
+                          else nList = [...prev, { id: m.uid, name: m.pName || "玩家", isHost: false, color: getAvailableColor(prev), isReady: false, isSpectator: isSpec }]; 
                           connsRef.current.forEach(conn => { 
                               if (conn === c) conn.send({ type: 'INIT', data: { ...stateRef.current, solutionGrid: solutionGridRef.current }, players: nList, isSpectator: isSpec }); 
                               else if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); 
@@ -1540,7 +1638,13 @@
                   } else if (m.type === 'LEAVE') { setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
                   } else if (m.type === 'SYNC') { syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
                   } else if (m.type === 'GHOST_SOLVED') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
-                  } else if (m.type === 'GHOST_I_WON' && stateRef.current.isGhostRace && !stateRef.current.winner) { const player = playersListRef.current.find(pl => pl.id === c.uid); if(player){ const winInfo = { id: c.uid, name: player.name, color: player.color, time: formatTime(Math.floor((m.time - stateRef.current.startTime)/1000)) }; setWinner(winInfo); connsRef.current.forEach(conn => conn.send({ type: 'GHOST_WINNER', winner: winInfo })); } 
+                  } else if (m.type === 'GHOST_I_WON' && stateRef.current.isGhostRace && !stateRef.current.winner) { 
+                      const player = playersListRef.current.find(pl => pl.id === m.senderUid || pl.id === c.uid); 
+                      if(player){ 
+                          const winInfo = m.winInfo || { id: c.uid, name: player.name, color: player.color, time: formatTime(Math.floor((m.time - stateRef.current.startTime)/1000)), isBrawl: stateRef.current.isBrawlMode }; 
+                          if (winInfo.isBrawl && handleBrawlWinRef.current) handleBrawlWinRef.current(winInfo);
+                          else if (!winInfo.isBrawl) { setWinner(winInfo); connsRef.current.forEach(conn => conn.send({ type: 'GHOST_WINNER', winner: winInfo })); }
+                      } 
                   } else if (m.type === 'REQ_COLOR_CHANGE') { setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
                   } else if (m.type === 'REQ_NAME_CHANGE') { 
                       const nameExists = playersListRef.current.some(p => p.name === m.name && p.id !== m.targetId);
@@ -1629,6 +1733,62 @@
         }
         showToast("✅ 暱稱修改成功！");
       };
+      const renderHostGodView = () => {
+          // 遊戲進行中時，改以「非房主 & 非觀戰者」作為篩選條件，不再依賴 isReady
+          const activePlayers = playersList.filter(p => !p.isHost && !p.isSpectator);
+          if (activePlayers.length === 0) return <div className="text-slate-500 text-2xl font-black flex items-center justify-center flex-1">等待玩家加入...</div>;
+          
+          return (
+              <div className="w-full h-full p-2 md:p-4 overflow-y-auto bg-slate-900 border-t-4 border-slate-800 grid gap-2 md:gap-4 auto-rows-max" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${Math.min(300, Math.max(150, 600 / Math.max(1, Math.ceil(activePlayers.length/2))))}px, 1fr))` }}>
+                  {activePlayers.map(p => {
+                      const size = cSizeDef.size;
+                      const pw = size * 20;
+                      return (
+                          <div key={p.id} className="flex flex-col items-center bg-slate-800 rounded-lg p-2 border-[3px] shadow-[4px_4px_0px_rgba(0,0,0,0.5)]" style={{borderColor: p.color === 'rainbow' ? '#ffcc00' : p.color}}>
+                              <div className="text-white font-bold mb-2 flex items-center gap-2">
+                                  <span className="w-3 h-3 rounded-full shadow-inner" style={{background: p.color === 'rainbow' ? 'linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet)' : p.color}}></span>
+                                  {p.name}
+                                  {stateRef.current.brawlWinners.some(w => w.id === p.id) && <span className="ml-1 text-xs bg-yellow-400 text-slate-800 px-1.5 py-0.5 rounded font-black shadow-[1px_1px_0px_#000]">完成</span>}
+                              </div>
+                              <svg viewBox={`0 0 ${pw} ${pw}`} className="w-full h-auto max-w-[400px]" style={{aspectRatio: '1/1', background: '#e2e8f0', borderRadius: '4px'}}>
+                                  {cells.map(cell => {
+                                      const cx = cell.x * 20;
+                                      const cy = cell.y * 20;
+                                      let isFilled = false;
+                                      let color = "transparent";
+                                      
+                                      if (cell.isGiven || cell.isSystemRevealed) {
+                                          isFilled = true; color = "#cbd5e1";
+                                      } else if (ghostHints[cell.id] && ghostHints[cell.id][p.id]) {
+                                          isFilled = true; color = p.color;
+                                      }
+                                      
+                                      const showText = isFilled && (!stateRef.current.brawlSettings.hideAnswers || cell.isGiven || cell.isSystemRevealed);
+                                      const val = (cell.isGiven || cell.isSystemRevealed) ? cell.value : (solutionGridRef.current ? solutionGridRef.current[cell.y][cell.x] : "");
+                                      
+                                      return (
+                                          <g key={cell.id}>
+                                              <rect x={cx} y={cy} width={20} height={20} fill={isFilled ? (color === 'rainbow' ? 'url(#rainbowGrad)' : color) : "white"} stroke="#94a3b8" strokeWidth="0.5" />
+                                              {showText && <text x={cx + 10} y={cy + 11} textAnchor="middle" dominantBaseline="central" fontSize="12" fill={cell.isGiven ? "#1e293b" : "white"} fontWeight="bold" style={{textShadow: cell.isGiven?'':'1px 1px 0 rgba(0,0,0,0.5)'}}>{val}</text>}
+                                          </g>
+                                      );
+                                  })}
+                                  {Array.from({ length: size + 1 }).map((_, i) => {
+                                      const isThickX = i % cSizeDef.boxW === 0; const isThickY = i % cSizeDef.boxH === 0;
+                                      return (
+                                          <g key={`l-${i}`}>
+                                              <line x1={i * 20} y1={0} x2={i * 20} y2={size * 20} stroke="#334155" strokeWidth={isThickX ? 2 : 0} />
+                                              <line x1={0} y1={i * 20} x2={size * 20} y2={i * 20} stroke="#334155" strokeWidth={isThickY ? 2 : 0} />
+                                          </g>
+                                      )
+                                  })}
+                              </svg>
+                          </div>
+                      );
+                  })}
+              </div>
+          );
+      };
 
       if (screen === 'home') {
         return (
@@ -1692,29 +1852,89 @@
       return (
         <div className="h-screen w-screen p-1 md:p-2 flex flex-col items-center font-sans relative" style={{ backgroundColor: '#fdf5e6', backgroundImage: 'radial-gradient(#d3c5ab 2px, transparent 2px)', backgroundSize: '12px 12px' }}>
           
-          {/* === 幽靈賽：等待全員準備 UI === */}
-          {matchPhase === 'waiting' && !isGenerating && (
-              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/80 backdrop-blur-md pointer-events-auto animate-fadeIn p-4">
-                  <div className="bg-white rounded-2xl p-8 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] text-center min-w-[320px] max-w-md w-full">
-                      <h2 className="text-3xl font-black text-slate-800 mb-6">等待所有人同意</h2>
-                      <div className="flex flex-col gap-3 mb-8">
+          {/* === 多人遊戲大廳 (Lobby) UI === */}
+          {matchPhase === 'waiting' && (
+              <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/80 backdrop-blur-md pointer-events-auto p-4 overflow-y-auto">
+                  <div className="bg-[#fffaf0] rounded-2xl p-6 md:p-8 border-4 border-slate-800 shadow-[8px_8px_0px_rgba(30,41,59,1)] text-center min-w-[320px] max-w-xl w-full my-auto">
+                      <h2 className="text-3xl font-black text-slate-800 mb-2 tracking-widest">🎮 遊戲大廳</h2>
+                      <div className="mb-4 text-slate-600 font-bold">房間代碼: <span className="bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded shadow-sm select-all">{roomId}</span></div>
+                      
+                      {isHostRef.current && (
+                          <div className="bg-white border-[3px] border-slate-800 rounded-xl p-4 mb-6 shadow-[4px_4px_0px_#1e293b] flex flex-col gap-3 text-left">
+                              <h3 className="font-black border-b-2 border-slate-100 pb-2 mb-1 flex items-center justify-between">
+                                 <span>⚙️ 房主設定</span>
+                                 {stateRef.current.isBrawlMode && <button onClick={() => setShowBrawlSettings(true)} className="bg-slate-700 text-white px-3 py-1 rounded border-2 border-slate-800 font-black text-sm shadow-[2px_2px_0px_#1e293b] hover:translate-y-[1px] hover:shadow-none">大亂鬥設定</button>}
+                              </h3>
+                              <div className="flex flex-wrap gap-2 items-center">
+                                  <span className="font-bold text-slate-500 w-12 text-sm">模式</span>
+                                  <button onClick={() => {if(stateRef.current.isBrawlMode || stateRef.current.isGhostRace) generateAndSync(sizeId, diffId, 'coop')}} className={`flex-1 min-w-[70px] px-2 py-2 rounded-lg border-2 border-slate-800 font-black text-sm transition-all ${!stateRef.current.isGhostRace && !stateRef.current.isBrawlMode ? 'bg-[#ffcc00] text-slate-900 shadow-[2px_2px_0px_#1e293b]' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 hover:shadow-sm'}`}>🤝 合作</button>
+                                  <button onClick={() => {if(!stateRef.current.isGhostRace || stateRef.current.isBrawlMode) generateAndSync(sizeId, diffId, 'ghost')}} className={`flex-1 min-w-[70px] px-2 py-2 rounded-lg border-2 border-slate-800 font-black text-sm transition-all ${stateRef.current.isGhostRace && !stateRef.current.isBrawlMode ? 'bg-red-500 text-white shadow-[2px_2px_0px_#1e293b]' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 hover:shadow-sm'}`}>👻 競速</button>
+                                  <button onClick={() => {if(!stateRef.current.isBrawlMode) generateAndSync(sizeId, diffId, 'brawl')}} className={`flex-1 min-w-[70px] px-2 py-2 rounded-lg border-2 border-slate-800 font-black text-sm transition-all ${stateRef.current.isBrawlMode ? 'bg-purple-600 text-white shadow-[2px_2px_0px_#1e293b]' : 'bg-slate-50 text-slate-400 hover:bg-slate-100 hover:text-slate-600 hover:shadow-sm'}`}>⚔️ 亂鬥</button>
+                              </div>
+                              <div className="flex gap-2">
+                                  <span className="font-bold text-slate-500 w-12 text-sm flex items-center">版型</span>
+                                  <select value={sizeId} onChange={handleSizeChange} className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-800 font-bold bg-slate-50 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#ffcc00] cursor-pointer">
+                                     {SIZES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                  </select>
+                              </div>
+                              <div className="flex gap-2">
+                                  <span className="font-bold text-slate-500 w-12 text-sm flex items-center">難度</span>
+                                  <select value={diffId} onChange={handleDiffChange} className="flex-1 px-3 py-2 rounded-lg border-2 border-slate-800 font-bold bg-slate-50 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-[#ffcc00] cursor-pointer">
+                                     {DIFFICULTIES.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                  </select>
+                              </div>
+                          </div>
+                      )}
+
+                      {!isHostRef.current && (
+                          <div className="bg-white border-[3px] border-slate-800 rounded-xl p-4 mb-6 shadow-[4px_4px_0px_#1e293b] text-left flex flex-col gap-2">
+                              <div className="flex justify-between items-center border-b-2 border-slate-100 pb-2">
+                                  <span className="bg-slate-800 text-white px-2 py-0.5 rounded font-black text-xs tracking-wider">房主設定</span>
+                                  <span className="font-black text-slate-800 text-lg">{stateRef.current.isBrawlMode ? '⚔️ 大亂鬥' : (stateRef.current.isGhostRace ? '👻 競速' : '🤝 合作')}</span>
+                              </div>
+                              <div className="flex justify-between font-bold text-slate-600 text-sm mt-1">
+                                  <span>{(SIZES.find(s=>s.id===sizeId) || {name: ''}).name}</span>
+                                  <span>{(DIFFICULTIES.find(d=>d.id===diffId) || {name: ''}).name}</span>
+                              </div>
+                          </div>
+                      )}
+
+                      <div className="flex flex-col gap-2 mb-6 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
                           {playersList.map(p => (
-                              <div key={p.id} className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border-2 border-slate-300">
-                                  <span className="font-bold text-slate-700 text-lg flex items-center gap-2">
-                                      <span className="w-4 h-4 rounded-full inline-block border border-slate-400" style={{backgroundColor: p.color === 'rainbow' ? '#ffcc00' : p.color}}></span>
-                                      {p.name} {p.id === myId && '(你)'}
+                              <div key={p.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-slate-800 shadow-sm shrink-0">
+                                  <span className="font-bold text-slate-700 text-base flex items-center gap-2 truncate">
+                                      <span className="w-4 h-4 rounded-full inline-block border-2 border-slate-800 shadow-inner shrink-0" style={{background: p.color === 'rainbow' ? 'linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet)' : p.color}}></span>
+                                      <span className="truncate">{p.name} {p.id === myId && '(你)'} {p.isHost && '👑'}</span>
                                   </span>
-                                  <span className="font-black text-xl">
-                                      {p.isReady ? <span className="text-emerald-500">✔ 已同意</span> : <span className="text-slate-400">...</span>}
+                                  <span className="font-black text-sm shrink-0 ml-2">
+                                      {(stateRef.current.isBrawlMode && p.isHost) ? (
+                                           <span className="text-purple-600 bg-purple-100 px-2 py-0.5 rounded">上帝視角</span>
+                                      ) : p.isReady ? (
+                                           <span className="text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded">✔ 已準備</span>
+                                      ) : (
+                                           <span className="text-slate-400 bg-slate-100 px-2 py-0.5 rounded">等待中...</span>
+                                      )}
                                   </span>
                               </div>
                           ))}
                       </div>
-                      {(playersList.find(p => p.id === myId) || {}).isReady ? (
-                          <div className="py-4 bg-slate-200 rounded-xl font-black text-xl text-slate-500 border-4 border-slate-300">等待其他玩家...</div>
-                      ) : (
-                          <button onClick={handleReady} className="w-full py-4 bg-[#ffcc00] text-[#2d2a26] rounded-xl font-black text-2xl border-[4px] border-[#2d2a26] shadow-[4px_4px_0px_#1e293b] hover:translate-y-[2px] hover:shadow-none transition-all">同意開始</button>
-                      )}
+                      
+                      <div className="flex gap-3">
+                          {((stateRef.current.isBrawlMode && isHostRef.current) ? false : true) && (
+                              !((playersList.find(p => p.id === myId) || {}).isReady) ? (
+                                  <button onClick={handleReady} className="flex-1 py-3 px-2 bg-[#ffcc00] text-[#2d2a26] rounded-xl font-black text-lg border-[4px] border-[#2d2a26] shadow-[4px_4px_0px_#1e293b] hover:translate-y-[2px] hover:shadow-none transition-all">✅ 準備就緒</button>
+                              ) : (
+                                  <button onClick={handleReady} className="flex-1 py-3 px-2 bg-slate-200 text-slate-500 rounded-xl font-black text-lg border-[4px] border-slate-400 shadow-[4px_4px_0px_#94a3b8] hover:translate-y-[2px] hover:shadow-none transition-all">❌ 取消準備</button>
+                              )
+                          )}
+                          
+                          {isHostRef.current && (
+                              <button onClick={() => {
+                                  const target = Date.now() + 5000;
+                                  syncState({ matchPhase: 'countdown', countdownTarget: target }, true);
+                              }} className="flex-1 py-3 px-2 bg-emerald-500 text-white rounded-xl font-black text-lg border-[4px] border-slate-800 shadow-[4px_4px_0px_#1e293b] hover:translate-y-[2px] hover:shadow-none transition-all">🚀 強制開始</button>
+                          )}
+                      </div>
                   </div>
               </div>
           )}
@@ -1741,13 +1961,24 @@
                          <div className="flex items-center gap-1 shrink-0">
                              <span className="bg-emerald-400 text-slate-900 px-1.5 py-0.5 rounded border-2 border-slate-800 font-black text-[10px] md:text-sm shadow-[1px_1px_0px_rgba(30,41,59,1)] flex items-center gap-1 whitespace-nowrap shrink-0">代碼: {roomId}</span>
                              <button 
-                                 onClick={() => { if (isHostRef.current) generateAndSync(sizeId, diffId, !isGhostRace); }}
+                                 onClick={() => { 
+                                     if (isHostRef.current) {
+                                         const currentMode = stateRef.current.isBrawlMode ? 'brawl' : (stateRef.current.isGhostRace ? 'ghost' : 'coop');
+                                         const nextMode = currentMode === 'coop' ? 'ghost' : (currentMode === 'ghost' ? 'brawl' : 'coop');
+                                         generateAndSync(sizeId, diffId, nextMode);
+                                     } 
+                                 }}
                                  disabled={!isHostRef.current}
-                                 className={`${isGhostRace?'bg-red-500':'bg-sky-400'} text-white px-1.5 py-0.5 rounded border-2 border-slate-800 font-black text-[10px] md:text-sm shadow-[1px_1px_0px_rgba(30,41,59,1)] flex items-center gap-1 whitespace-nowrap shrink-0 ${isHostRef.current ? 'cursor-pointer hover:translate-y-[1px] hover:shadow-none active:translate-y-[2px] transition-all' : 'opacity-90 cursor-default'}`}
+                                 className={`${isBrawlMode ? 'bg-purple-600' : isGhostRace ? 'bg-red-500' : 'bg-sky-400'} text-white px-1.5 py-0.5 rounded border-2 border-slate-800 font-black text-[10px] md:text-sm shadow-[1px_1px_0px_rgba(30,41,59,1)] flex items-center gap-1 whitespace-nowrap shrink-0 ${isHostRef.current ? 'cursor-pointer hover:translate-y-[1px] hover:shadow-none active:translate-y-[2px] transition-all' : 'opacity-90 cursor-default'}`}
                                  title={isHostRef.current ? "點擊切換競賽模式（將會重新出題）" : "僅房主可切換模式"}
                              >
-                                 {isGhostRace?'👻 幽靈競速':'🌐 合作模式'}
+                                 {isBrawlMode ? '⚔️ 大亂鬥' : (isGhostRace ? '👻 幽靈競速' : '🌐 合作模式')}
                              </button>
+                             {isBrawlMode && isHostRef.current && (
+                                 <button onClick={() => setShowBrawlSettings(true)} className="bg-slate-700 text-white px-1.5 py-0.5 rounded border-2 border-slate-800 font-black text-[10px] md:text-sm shadow-[1px_1px_0px_rgba(30,41,59,1)] hover:translate-y-[1px] hover:shadow-none active:translate-y-[2px] transition-all">
+                                     ⚙️ 設定
+                                 </button>
+                             )}
                          </div>
                      )}
                   </div>
@@ -1873,10 +2104,10 @@
                                key={`keybtn-${idx}`}
                                onClick={(e) => { onNumClick(e, c); }}
                                title={isCompleted ? `已經填滿 ${c}` : `點擊選取 ${c}`}
-                               className={`select-none flex-1 min-w-[18px] max-w-[48px] aspect-square rounded-md sm:rounded-lg md:rounded-xl text-[10px] sm:text-base md:text-2xl font-black border-2 md:border-[3px] border-slate-800 flex items-center justify-center p-0 key-btn
+                               className={`select-none flex-1 min-w-[24px] max-w-[48px] aspect-square rounded-md sm:rounded-lg md:rounded-xl text-sm sm:text-lg md:text-2xl font-black border-2 md:border-[3px] border-slate-800 flex items-center justify-center p-0 key-btn
                                ${isFlipping ? 'anim-key-flip' : ''}
                                ${isCompleted ? 'bg-slate-300 text-slate-500 opacity-60 cursor-pointer shadow-none' : 
-                                 selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[2px_2px_0px_rgba(30,41,59,1)] sm:shadow-[4px_4px_0px_rgba(30,41,59,1)]' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[1px_1px_0px_rgba(30,41,59,1)] sm:shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
+                                 selectedChar === c ? 'bg-[#ffcc00] text-slate-900 scale-110 shadow-[2px_2px_0px_rgba(30,41,59,1)] sm:shadow-[4px_4px_0px_rgba(30,41,59,1)] hover:scale-110' : 'bg-white text-slate-700 hover:bg-slate-50 shadow-[1px_1px_0px_rgba(30,41,59,1)] sm:shadow-[2px_2px_0px_rgba(30,41,59,1)]'}
                                ${!isCompleted && !isFlipping ? 'active:translate-y-1 active:shadow-none' : ''}`}
                             >
                                {c}
@@ -1920,6 +2151,7 @@
 
               <div ref={zoomContainerRef} className="p-2 md:p-6 flex-1 overflow-auto custom-scrollbar relative z-0 flex flex-col">
                 {isSpectator ? (
+                    isHostRef.current && stateRef.current.isBrawlMode ? renderHostGodView() : (
                     <div className="flex-1 flex flex-col items-center justify-center min-h-[400px]">
                         <div className="bg-white border-4 border-slate-800 rounded-xl p-6 md:p-10 shadow-[8px_8px_0px_rgba(30,41,59,1)] w-full max-w-2xl text-center">
                             <h2 className="text-3xl md:text-4xl font-black text-slate-800 mb-2 tracking-widest">📡 賽況轉播中</h2>
@@ -1949,6 +2181,7 @@
                             </div>
                         </div>
                     </div>
+                    )
                 ) : (
                     <div className="flex justify-center items-center min-w-max min-h-max m-auto pb-10 pr-20">
                       <svg 
@@ -1972,9 +2205,10 @@
                         <g transform={`translate(${PADDING}, ${PADDING})`}>
                             {activeCells.map(cell => {
                                 const hasConflict = conflictCellIds.has(cell.id);
-                                const isExactMatch = selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
-                                const isHighlightZone = highlightZones.has(cell.id);
-                                const isFilledWithOther = selectedChar !== null && cell.value !== null && cell.value !== selectedChar && interactionMode < 2;
+                                const yellowAllowed = (!isGhostRace || (stateRef.current.isBrawlMode && stateRef.current.brawlSettings.allowYellowHint));
+                                const isExactMatch = yellowAllowed && selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
+                                const isHighlightZone = yellowAllowed && highlightZones.has(cell.id);
+                                const isFilledWithOther = yellowAllowed && selectedChar !== null && cell.value !== null && cell.value !== selectedChar && interactionMode < 2;
                                 
                                 let fillColor = '#ffffff';
                                 if (hasConflict) fillColor = '#fee2e2'; 
@@ -2078,8 +2312,9 @@
                                     const row = Math.floor(idx / 5);
                                     const offsetX = col * (sqSize + 2);
                                     const offsetY = row * (sqSize + 2);
+                                    const playerColor = getPlayerColor(uid);
                                     return (
-                                        <rect key={`ghost-${cell.id}-${uid}`} x={cell.x * CELL_SIZE + CELL_SIZE - sqSize - 2 - offsetX} y={cell.y * CELL_SIZE + 2 + offsetY} width={sqSize} height={sqSize} fill={color === 'rainbow' ? 'url(#rainbowGrad)' : color} opacity="0.95" rx="2" className="pointer-events-none ghost-highlight" stroke="rgba(255,255,255,0.7)" strokeWidth="1" />
+                                        <rect key={`ghost-${cell.id}-${uid}`} x={cell.x * CELL_SIZE + CELL_SIZE - sqSize - 2 - offsetX} y={cell.y * CELL_SIZE + 2 + offsetY} width={sqSize} height={sqSize} fill={playerColor === 'rainbow' ? 'url(#rainbowGrad)' : playerColor} opacity="0.95" rx="2" className="pointer-events-none ghost-highlight" stroke="rgba(255,255,255,0.7)" strokeWidth="1" />
                                     );
                                 });
                             })}
@@ -2135,20 +2370,83 @@
                 )}
               </div>
 
+              {/* 大亂鬥設定 Modal */}
+              {showBrawlSettings && (
+                  <div className="absolute inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto animate-fadeIn">
+                      <div className="bg-white rounded-2xl p-6 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] relative flex flex-col gap-4 min-w-[300px]">
+                          <h2 className="text-xl font-black mb-2 border-b-4 border-purple-500 inline-block pb-1">⚙️ 大亂鬥設定</h2>
+                          
+                          <label className="flex items-center justify-between font-bold text-slate-800">
+                              <span>結束名次 (1~5)</span>
+                              <input type="number" min="1" max="5" value={brawlSettings.winnersCount} onChange={e => {
+                                  const val = Math.max(1, Math.min(5, Number(e.target.value)));
+                                  const newSettings = { ...brawlSettings, winnersCount: val };
+                                  syncState({ brawlSettings: newSettings });
+                              }} className="w-16 border-2 border-slate-800 rounded p-1 text-center font-black" />
+                          </label>
+
+                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                              <span>開啟快速填答</span>
+                              <input type="checkbox" checked={brawlSettings.allowQuickFill} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowQuickFill: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
+                          </label>
+
+                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                              <span>開啟循環模式</span>
+                              <input type="checkbox" checked={brawlSettings.allowTraversal} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowTraversal: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
+                          </label>
+
+                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                              <span>開啟底塊提示</span>
+                              <input type="checkbox" checked={brawlSettings.allowYellowHint} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowYellowHint: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
+                          </label>
+
+                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                              <span>畫面使用色塊遮擋</span>
+                              <input type="checkbox" checked={brawlSettings.hideAnswers} onChange={e => syncState({ brawlSettings: { ...brawlSettings, hideAnswers: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
+                          </label>
+
+                          <button onClick={() => setShowBrawlSettings(false)} className="mt-4 px-4 py-2 bg-[#ffcc00] border-4 border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all">關閉設定</button>
+                      </div>
+                  </div>
+              )}
+
               {((isWon && !isGhostRace) || (isGhostRace && winner)) && !hideVictoryModal && (
                 <div className={`absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto ${isClosingModal ? 'animate-fadeOut' : 'animate-fadeIn'}`}>
                   <div className={`bg-white rounded-2xl p-6 md:p-8 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] text-center min-w-[280px] md:min-w-[320px] relative ${isClosingModal ? 'animate-popOutCenter' : 'animate-popUpCenter'}`}>
                     <button onClick={closeVictoryModal} className="absolute top-2 right-4 text-slate-400 hover:text-[#2d2a26] text-2xl font-black">✕</button>
                     {isGhostRace ? (
-                        <div>
-                            <div className="text-6xl mb-3">🏆</div>
-                            <h2 className="text-3xl font-black mb-1 uppercase tracking-wide" style={{color: winner.color}}>Winner!</h2>
-                            <div className="inline-block border-2 border-slate-800 bg-slate-100 rounded px-3 py-1 mb-4 font-black shadow-[2px_2px_0px_rgba(0,0,0,0.1)]">
-                                <span style={{borderLeft: `4px solid ${winner.color}`, paddingLeft: '6px'}}>{winner.name}</span>
-                                <span className="text-blue-600 ml-3 font-mono">⏱ {winner.time}</span>
+                        isBrawlMode ? (
+                            <div className="w-full">
+                                <div className="text-5xl mb-2">⚔️🏆</div>
+                                <h2 className="text-3xl font-black text-purple-700 mb-3 uppercase tracking-wide">大亂鬥結果！</h2>
+                                <div className="flex flex-col gap-2 mb-5 text-left max-h-[240px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {brawlWinners.map((w, i) => {
+                                        const medals = ['🥇','🥈','🥉'];
+                                        const medal = medals[i] || `${i+1}`;
+                                        return (
+                                            <div key={w.id} className="flex items-center gap-3 bg-slate-50 border-2 border-slate-200 rounded-xl px-3 py-2 shadow-sm">
+                                                <span className="text-2xl w-8 shrink-0 text-center">{medal}</span>
+                                                <span className="w-3 h-full shrink-0 rounded-full self-stretch" style={{backgroundColor: w.color === 'rainbow' ? 'transparent' : w.color, minWidth: '4px', maxWidth: '4px', background: w.color === 'rainbow' ? 'linear-gradient(to bottom, red, orange, yellow, green, blue, indigo, violet)' : w.color}}></span>
+                                                <span className="font-black text-slate-800 flex-1 truncate">{w.name}</span>
+                                                <span className="font-mono text-blue-600 text-sm shrink-0">⏱ {w.time}</span>
+                                            </div>
+                                        );
+                                    })}
+                                    {brawlWinners.length === 0 && <div className="text-slate-400 text-center font-bold py-4">尚無完成者</div>}
+                                </div>
+                                <div className="border-t-2 border-dashed border-slate-200 pt-3 mb-2"></div>
                             </div>
-                            <p className="text-slate-600 mb-6 text-sm font-bold border-b-2 border-dashed border-slate-300 pb-4">在平行宇宙競速中脫穎而出！</p>
-                        </div>
+                        ) : (
+                            <div>
+                                <div className="text-6xl mb-3">🏆</div>
+                                <h2 className="text-3xl font-black mb-1 uppercase tracking-wide" style={{color: winner.color}}>Winner!</h2>
+                                <div className="inline-block border-2 border-slate-800 bg-slate-100 rounded px-3 py-1 mb-4 font-black shadow-[2px_2px_0px_rgba(0,0,0,0.1)]">
+                                    <span style={{borderLeft: `4px solid ${winner.color}`, paddingLeft: '6px'}}>{winner.name}</span>
+                                    <span className="text-blue-600 ml-3 font-mono">⏱ {winner.time}</span>
+                                </div>
+                                <p className="text-slate-600 mb-6 text-sm font-bold border-b-2 border-dashed border-slate-300 pb-4">在平行宇宙競速中脫穎而出！</p>
+                            </div>
+                        )
                     ) : (
                         <div>
                             <div className="text-6xl mb-3">💥🏆</div>
@@ -2156,8 +2454,15 @@
                             <p className="text-slate-600 mb-6 text-sm font-bold border-b-2 border-dashed border-slate-300 pb-4">完成時間：{endTime ? formatTime(Math.floor((endTime - startTime) / 1000)) : "00:00"}</p>
                         </div>
                     )}
-                    <div className="flex justify-center gap-3 flex-wrap">
-                        <button onClick={requestRegenerate} className="px-5 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all text-base md:text-lg">再來一局 ➔</button> 
+                    <div className="flex justify-center gap-3 flex-wrap w-full mt-4">
+                        {isHostRef.current ? (
+                            <React.Fragment>
+                                <button onClick={requestRegenerate} className="flex-1 px-3 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all text-sm sm:text-base">再來一局 (同設定)</button> 
+                                <button onClick={requestRegenerate} className="flex-1 px-3 py-3 bg-white text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all text-sm sm:text-base">返回大廳更改設定</button>
+                            </React.Fragment>
+                        ) : (
+                            <span className="font-black text-slate-500 bg-slate-100 px-4 py-2 rounded-xl border-2 border-slate-300">⏳ 等待房主決定下一局...</span>
+                        )}
                     </div>
                   </div>
                 </div>

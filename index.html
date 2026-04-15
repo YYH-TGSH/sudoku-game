@@ -11,6 +11,27 @@
   <link rel="icon" href="icon.png" type="image/png" sizes="180x180">
   <link rel="apple-touch-icon" href="icon.png">
   
+  <script>
+    // 抑制 noisy console warnings (Tailwind, Babel)
+    (function() {
+      const originalWarn = console.warn;
+      console.warn = function(...args) {
+        if (typeof args[0] === 'string' && (
+          args[0].includes('cdn.tailwindcss.com') || 
+          args[0].includes('You are using the in-browser Babel transformer') ||
+          args[0].includes('Source map')
+        )) return;
+        originalWarn.apply(console, args);
+      };
+      
+      const originalError = console.error;
+      console.error = function(...args) {
+        const str = args.join(' ');
+        if (str.includes('Source map') || str.includes('sourceMap')) return;
+        originalError.apply(console, args);
+      };
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -99,7 +120,7 @@ var oldErr = console.error;
 console.error = function() {
   oldErr.apply(console, arguments);
   var str = Array.from(arguments).map(String).join(" ");
-  if (str.includes("SyntaxError") || str.includes("Babel") || str.includes("Warning")) {
+  if (str.includes("SyntaxError") && !str.includes("Babel") && !str.includes("Warning")) {
     var d = document.createElement('div');
     d.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:red;color:white;width:100%;height:100%;padding:20px;font-size:20px;overflow:auto;word-wrap:break-word;white-space:pre-wrap;text-align:left;font-family:monospace;';
     d.innerHTML = '<h2>Console Error</h2>' + encodeURIComponent(str).replace(/%[A-Z0-9]{2}/g, function() {return" "});
@@ -113,24 +134,39 @@ console.error = function() {
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    window.firebaseAPI = {
-      initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
-      getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc
-    };
+    import { getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, addDoc, deleteDoc, runTransaction, arrayUnion, arrayRemove, query, orderBy, limit, serverTimestamp, where, getDocs, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+ 
+      window.firebaseAPI = {
+        initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
+        getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, addDoc, deleteDoc, runTransaction, arrayUnion, arrayRemove, query, orderBy, limit, serverTimestamp, where, getDocs, writeBatch
+      };
+      window.dispatchEvent(new Event('firebase-ready'));
   </script>
 
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
-    const { initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, deleteDoc } = window.firebaseAPI;
+    
+    // 全局變數宣告
+    let initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, getFirestore, doc, setDoc, getDoc, onSnapshot, updateDoc, collection, addDoc, deleteDoc, runTransaction, arrayUnion, arrayRemove, query, orderBy, limit, serverTimestamp, where, getDocs, writeBatch;
+    let auth, db, app;
 
-    // Firebase 配置
-    const providedConfig = {apiKey: "AIzaSyCbw8MNh616_OIBfoyh2gIhQQhsgsN8rAc",authDomain: "hashi-game-2c006.firebaseapp.com",databaseURL: "https://hashi-game-2c006-default-rtdb.asia-southeast1.firebasedatabase.app",projectId: "hashi-game-2c006",storageBucket: "hashi-game-2c006.firebasestorage.app",messagingSenderId: "732616383715",appId: "1:732616383715:web:f31a0f7f24a08f3b78b9d6"};
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : providedConfig;
-    const app = initializeApp(firebaseConfig);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
+    const initApp = () => {
+      const api = window.firebaseAPI;
+      initializeApp = api.initializeApp; getAuth = api.getAuth; signInAnonymously = api.signInAnonymously; 
+      onAuthStateChanged = api.onAuthStateChanged; signInWithCustomToken = api.signInWithCustomToken; 
+      getFirestore = api.getFirestore; doc = api.doc; setDoc = api.setDoc; getDoc = api.getDoc; 
+      onSnapshot = api.onSnapshot; updateDoc = api.updateDoc; collection = api.collection; 
+      addDoc = api.addDoc; deleteDoc = api.deleteDoc; runTransaction = api.runTransaction; 
+      arrayUnion = api.arrayUnion; arrayRemove = api.arrayRemove; query = api.query; 
+      orderBy = api.orderBy; limit = api.limit; serverTimestamp = api.serverTimestamp; 
+      where = api.where; getDocs = api.getDocs; writeBatch = api.writeBatch;
+
+      const providedConfig = {apiKey: "AIzaSyCbw8MNh616_OIBfoyh2gIhQQhsgsN8rAc",authDomain: "hashi-game-2c006.firebaseapp.com",databaseURL: "https://hashi-game-2c006-default-rtdb.asia-southeast1.firebasedatabase.app",projectId: "hashi-game-2c006",storageBucket: "hashi-game-2c006.firebasestorage.app",messagingSenderId: "732616383715",appId: "1:732616383715:web:f31a0f7f24a08f3b78b9d6"};
+      const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : providedConfig;
+      app = initializeApp(firebaseConfig);
+      auth = getAuth(app);
+      db = getFirestore(app);
+    };
 
     const COLORS = ['#E3002B','#F35B00','#FFC90E','#D7157A','#E895C0','#007A61','#87D300','#C4D600','#8DD1BF','#616130','#00538A','#008CC1','#00C1D5','#79C8ED','#CDBB79','#41136A','#935CB9','#BCA8D1','#7A0026','#BC7B70'];
     const getAvailableColor = (currentPlayers) => { const usedColors = currentPlayers.map(p => p.color); const available = COLORS.filter(c => !usedColors.includes(c)); return available.length > 0 ? available[Math.floor(Math.random() * available.length)] : COLORS[Math.floor(Math.random() * COLORS.length)]; };
@@ -366,7 +402,22 @@ console.error = function() {
 
       const [matchPhase, setMatchPhase] = useState('playing'); 
       const [countdownTarget, setCountdownTarget] = useState(null);
-      const [countdownNum, setCountdownNum] = useState(null);
+      const [countdownValue, setCountdownValue] = useState(null);
+
+      // 強制重開倒計時邏輯 
+      useEffect(() => {
+          if (!countdownTarget) { setCountdownValue(null); return; }
+          const timer = setInterval(() => {
+              const diff = Math.max(0, Math.ceil((countdownTarget - Date.now()) / 1000));
+              setCountdownValue(diff);
+              if (diff <= 0) {
+                  clearInterval(timer);
+                  setCountdownTarget(null);
+                  if (isHostRef.current && handleRegenerateRandomRef.current) handleRegenerateRandomRef.current();
+              }
+          }, 200);
+          return () => clearInterval(timer);
+      }, [countdownTarget]);
       
       const [isSpectator, setIsSpectator] = useState(false);
 
@@ -443,10 +494,53 @@ console.error = function() {
       const roomRef = useRef(null);
       const unsubRef = useRef(null);
       const zoomContainerRef = useRef(null);
-      const lastPinchDist = useRef(null);
+const lastPinchDist = useRef(null);
       const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, isBrawlMode: false, brawlWinners: [], brawlSettings: { winnersCount: 3, allowQuickFill: false, allowTraversal: false, allowYellowHint: false, hideAnswers: true }, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: [] });
       
       const playersListRef = useRef([]);
+
+      const handleMultiplayerWinRef = useRef(null);
+      handleMultiplayerWinRef.current = (winInfo) => {
+          if (!stateRef.current.isGhostRace && !stateRef.current.isBrawlMode) return;
+          if (stateRef.current.brawlWinners.some(w => w.id === winInfo.id)) return;
+          
+          const curWinners = stateRef.current.brawlWinners;
+          const newWinners = [...curWinners, winInfo];
+          const winnersIds = newWinners.map(w => w.uid);
+          const playingPlayers = playersListRef.current.filter(p => !p.isSpectator && !p.isHost);
+          
+          const winnersLimit = stateRef.current.isBrawlMode ? (stateRef.current.brawlSettings.winnersCount || 1) : 1;
+          const allDone = (newWinners.length >= winnersLimit) || (playingPlayers.length > 0 && playingPlayers.every(p => winnersIds.includes(p.id)));
+          
+          const winnerObj = stateRef.current.isBrawlMode ? (newWinners[0] || winInfo) : winInfo;
+
+          stateRef.current.brawlWinners = newWinners;
+          if (allDone) stateRef.current.matchPhase = 'finished';
+          if (allDone && !stateRef.current.isBrawlMode) stateRef.current.winner = winnerObj;
+          
+          setBrawlWinners(newWinners);
+          if (allDone) {
+              setMatchPhase('finished');
+              if (!stateRef.current.isBrawlMode) setWinner(winnerObj);
+          }
+
+          if (engineRef.current === 'firebase' && roomRef.current) {
+              const updatePayload = { "gameState.brawlWinners": newWinners };
+              if (allDone) {
+                  updatePayload["gameState.matchPhase"] = 'finished';
+                  if (!stateRef.current.isBrawlMode) updatePayload["gameState.winner"] = winnerObj;
+              }
+              updateDoc(roomRef.current, updatePayload).catch(e => {});
+          }
+          else if (engineRef.current === 'peerjs' && isHostRef.current) {
+              const syncData = { brawlWinners: newWinners };
+              if (allDone) {
+                  syncData.matchPhase = 'finished';
+                  if (!stateRef.current.isBrawlMode) syncData.winner = winnerObj;
+              }
+              syncState(syncData, true);
+          }
+      };
 
       const zoomLevelRef = useRef(1);
       const zoomModeIdxRef = useRef(0);
@@ -457,23 +551,7 @@ console.error = function() {
       const handleBrawlWinRef = useRef(null);
 
       handleBrawlWinRef.current = (winInfo) => {
-          if (!stateRef.current.isBrawlMode) return;
-          if (stateRef.current.brawlWinners.some(w => w.id === winInfo.id)) return;
-          
-          const newWinners = [...stateRef.current.brawlWinners, winInfo];
-          const countLimit = stateRef.current.brawlSettings.winnersCount;
-          const activePlayersCount = playersListRef.current.filter(p => !p.isHost).length; 
-          const threshold = Math.min(countLimit, activePlayersCount || 999);
-          
-          if (newWinners.length >= threshold) {
-              const fakeWinnerObj = newWinners[0];
-              setWinner(fakeWinnerObj);
-              syncState({ brawlWinners: newWinners, matchPhase: 'finished', winner: fakeWinnerObj }, true);
-              if (engineRef.current === 'peerjs') connsRef.current.forEach(c => c.send({ type: 'SYNC', data: { brawlWinners: newWinners, matchPhase: 'finished', winner: fakeWinnerObj } }));
-          } else {
-              syncState({ brawlWinners: newWinners }, true);
-              if (engineRef.current === 'peerjs') connsRef.current.forEach(c => c.send({ type: 'SYNC', data: { brawlWinners: newWinners } }));
-          }
+          if (handleMultiplayerWinRef.current) handleMultiplayerWinRef.current(winInfo);
       };
 
       const cSizeDef = levelData.sizeDef;
@@ -504,9 +582,9 @@ console.error = function() {
             const checkTime = () => {
                 const remaining = Math.ceil((countdownTarget - Date.now()) / 1000);
                 if (remaining > 0) {
-                    setCountdownNum(remaining);
+                    setCountdownValue(remaining);
                 } else {
-                    setCountdownNum(null);
+                    setCountdownValue(null);
                     if (stateRef.current.matchPhase !== 'playing') {
                         setMatchPhase('playing');
                         setStartTime(countdownTarget);
@@ -520,7 +598,7 @@ console.error = function() {
             const interval = setInterval(checkTime, 100);
             return () => clearInterval(interval);
         } else {
-            setCountdownNum(null);
+            setCountdownValue(null);
         }
       }, [matchPhase, countdownTarget]);
 
@@ -577,6 +655,14 @@ console.error = function() {
 
       useEffect(() => { zoomLevelRef.current = zoomLevel; }, [zoomLevel]);
       useEffect(() => { zoomModeIdxRef.current = zoomModeIdx; }, [zoomModeIdx]);
+
+      // 同步本地觀戰狀態與伺服器列表中的身分
+      useEffect(() => {
+          const me = playersList.find(p => p.id === myId);
+          if (me && me.isSpectator !== isSpectator) {
+              setIsSpectator(me.isSpectator);
+          }
+      }, [playersList, myId]);
 
       useEffect(function() {
         const initAuth = async function() {
@@ -700,26 +786,27 @@ console.error = function() {
 
           if (newComps > 0) {
               for (let k = 0; k < newComps; k++) {
+                  // 修正挑選邏輯：排除觀戰者、已過關者，以及自己
+                  const winnersIds = stateRef.current.brawlWinners.map(w => w.id);
+                  const validPlayers = playersList.filter(p => !p.isSpectator && !winnersIds.includes(p.id) && p.id !== myId);
                   const solvedCounts = { ...ghostProgress };
+                  
                   let minScore = Infinity;
                   let candidates = [];
-                  const activePlayerCount = Object.keys(solvedCounts).length;
-                  for (let uid in solvedCounts) {
-                      if (activePlayerCount > 1 && uid === myId) continue; 
-
-                      if (solvedCounts[uid] < minScore) {
-                          minScore = solvedCounts[uid];
-                          candidates = [uid];
-                      } else if (solvedCounts[uid] === minScore) {
-                          candidates.push(uid);
-                      }
-                  }
                   
-                  let targetUid = myId;
-                  if (candidates.length > 0) {
-                      targetUid = candidates[Math.floor(Math.random() * candidates.length)];
-                  }
+                  validPlayers.forEach(p => {
+                      const score = solvedCounts[p.id] || 0;
+                      if (score < minScore) {
+                          minScore = score;
+                          candidates = [p.id];
+                      } else if (score === minScore) {
+                          candidates.push(p.id);
+                      }
+                  });
 
+                  if (candidates.length === 0) return; // 沒有合法目標則不發送
+
+                  const targetUid = candidates[Math.floor(Math.random() * candidates.length)];
                   const gid = Math.random().toString(36).substring(2, 10);
                   const msg = { type: 'RECEIVE_GIFT', targetUid, senderUid: myId, id: gid, timestamp: Date.now() };
                   
@@ -727,10 +814,8 @@ console.error = function() {
                       if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
                       else if (connRef.current) connRef.current.send(msg);
                   } else if (engineRef.current === 'firebase' && roomRef.current) {
-                      const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
-                      safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
-                      if (safeGameState.solutionGrid && Array.isArray(safeGameState.solutionGrid)) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
-                      updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
+                      // Firebase 模式：改用子集合 addDoc 避免覆蓋
+                      addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
                   }
                   
                   if (targetUid === myId) {
@@ -738,7 +823,7 @@ console.error = function() {
                   }
               }
           }
-      }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars, ghostHints, isSpectator, matchPhase, conflictCellIds, ghostProgress]);
+      }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars, ghostHints, isSpectator, matchPhase, conflictCellIds, ghostProgress, playersList, brawlWinners]);
 
       useEffect(() => {
           if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing' || isSpectator) return;
@@ -752,7 +837,11 @@ console.error = function() {
                       const finishTime = Date.now();
                       const isBrawl = stateRef.current.isBrawlMode;
                       if (!isBrawl) { setEndTime(finishTime); setMatchPhase('finished'); }
-                      else { setIsSpectator(true); setMatchPhase('waiting'); showToast("🏁 恭喜完成！已進入觀戰模式"); }
+                      else { 
+                          setIsSpectator(true); 
+                          // 不再設為 waiting，保持在 playing 才能看到進度條
+                          showToast("🏁 恭喜完成！已進入觀戰模式，觀察對手中..."); 
+                      }
                       
                       const me = playersList.find(p => p.id === myId);
                       const winInfo = { id: myId, name: me ? me.name : "玩家", color: me ? me.color : COLORS[0], time: formatTime(Math.floor((finishTime - (matchStartTime || startTime))/1000)), isBrawl };
@@ -765,15 +854,8 @@ console.error = function() {
                               else if (handleBrawlWinRef.current) handleBrawlWinRef.current(winInfo);
                           } else if (connRef.current) connRef.current.send(msg);
                       } else if (engineRef.current === 'firebase' && roomRef.current) {
-                          const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
-                          safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
-                          if (safeGameState.solutionGrid && Array.isArray(safeGameState.solutionGrid)) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
-                          if (isHostRef.current) {
-                              if (!isBrawl) { safeGameState.winner = winInfo; updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{}); }
-                              else { updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{}); if (handleBrawlWinRef.current) handleBrawlWinRef.current(winInfo); }
-                          } else {
-                              updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
-                          }
+                          addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+                          if (isHostRef.current && handleMultiplayerWinRef.current) handleMultiplayerWinRef.current(winInfo);
                       }
                   }
               } else {
@@ -844,9 +926,12 @@ console.error = function() {
           });
           
           const me = playersListRef.current.find(p => p.id === myId);
-          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId };
-          if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
-          else if (connRef.current) connRef.current.send(msg);
+          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : myColorRef.current, cellId, id: Math.random().toString(36).substring(2, 11) };
+          if (engineRef.current === 'peerjs') {
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
+          } else if (engineRef.current === 'firebase' && roomRef.current) {
+              addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+          }
       };
 
       const handleReceiveGiftRef = useRef();
@@ -870,16 +955,23 @@ console.error = function() {
           }]);
       };
 
+      const triggerRipple = (pt) => {
+          const msg = { type: 'RIPPLE', x: pt.x, y: pt.y, color: myColorRef.current || COLORS[0], id: Math.random().toString(36).substring(2, 10) };
+          if (engineRef.current === 'peerjs') {
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg));
+              else if (connRef.current) connRef.current.send(msg);
+          } else if (engineRef.current === 'firebase' && roomRef.current) {
+              addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+          }
+      };
+
       const triggerCounterAttack = (targetUid) => {
           const msg = { type: 'GIFT_COUNTER_ATTACK', targetUid, id: Math.random().toString(36).substring(2, 10), timestamp: Date.now() };
           if (engineRef.current === 'peerjs') {
               if (isHostRef.current) connsRef.current.forEach(c => c.send(msg));
               else if (connRef.current) connRef.current.send(msg);
           } else if (engineRef.current === 'firebase' && roomRef.current) {
-              const safeGameState = JSON.parse(JSON.stringify(stateRef.current));
-              safeGameState.giftEvents = [...(safeGameState.giftEvents || []), msg];
-              if (safeGameState.solutionGrid && Array.isArray(safeGameState.solutionGrid)) safeGameState.solutionGrid = JSON.stringify(safeGameState.solutionGrid);
-              updateDoc(roomRef.current, { gameState: safeGameState }).catch(e=>{});
+              addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
           }
       };
 
@@ -935,7 +1027,12 @@ console.error = function() {
 
           if (partial.isGenerating !== undefined) {
               setIsGenerating(partial.isGenerating);
-              if (partial.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); setBrawlWinners([]); }
+              if (partial.isGenerating) { 
+                  setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); 
+                  completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); setBrawlWinners([]); 
+                  // 重置觀戰狀態：房主在大亂鬥保持觀戰，其餘玩家恢復參賽
+                  setIsSpectator(isHostRef.current && (partial.isBrawlMode !== undefined ? partial.isBrawlMode : stateRef.current.isBrawlMode));
+              }
           }
           
           if (partial.isGhostRace !== undefined) setIsGhostRace(partial.isGhostRace);
@@ -986,46 +1083,78 @@ console.error = function() {
               if (!updatedState.isGhostRace) {
                   broadcastData.cells = updatedState.cells;
                   broadcastData.localCells = updatedState.localCells;
-                  if (partial.selectedChar !== undefined) broadcastData.selectedChar = partial.selectedChar;
-                  else broadcastData.selectedChar = updatedState.selectedChar;
-                  if (updatedState.isAutoFilling || partial.isAutoFilling === false) broadcastData.isAutoFilling = updatedState.isAutoFilling;
               } else if (partial.levelData) {
                   broadcastData.cells = updatedState.cells;
                   broadcastData.localCells = updatedState.localCells;
               }
 
-              if (engineRef.current === 'firebase' && roomRef.current) updateDoc(roomRef.current, { "gameState": JSON.parse(JSON.stringify(broadcastData)), updatedAt: Date.now() }).catch(e => {});
-              else if (engineRef.current === 'peerjs') { 
-                  if (isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'SYNC', data: broadcastData })); 
-                  else if (connRef.current) connRef.current.send({ type: 'SYNC', data: broadcastData }); 
-              }
+               if (engineRef.current === 'firebase' && roomRef.current) {
+                   const updatePayload = { updatedAt: Date.now() };
+                   for (const key in broadcastData) {
+                       if (key === 'giftEvents' && partial.giftEvents === undefined) continue;
+                       updatePayload[`gameState.${key}`] = broadcastData[key];
+                   }
+                   if (partial.fullPlayersUpdate) {
+                       updatePayload.players = partial.fullPlayersUpdate;
+                   }
+                   updateDoc(roomRef.current, updatePayload).catch(e => {});
+               }
+               else if (engineRef.current === 'peerjs') { 
+                   if (isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'SYNC', data: broadcastData })); 
+                   else if (connRef.current) connRef.current.send({ type: 'SYNC', data: broadcastData }); 
+               }
           }
       };
 
-      const handleReady = () => {
+      const handleReady = async () => {
           if (engineRef.current === 'firebase' && roomRef.current) {
-              const nList = playersListRef.current.map(p => p.id === myId ? { ...p, isReady: true } : p);
-              setPlayersList(nList);
-              updateDoc(roomRef.current, { players: nList }).catch(e => {});
+              try {
+                  await runTransaction(db, async (transaction) => {
+                      const snap = await transaction.get(roomRef.current);
+                      if (!snap.exists()) return;
+                      const pList = snap.data().players || [];
+                      const meIdx = pList.findIndex(p => p.id === myId);
+                      if (meIdx !== -1) {
+                          const currentReady = pList[meIdx].isReady;
+                          pList[meIdx].isReady = !currentReady; // 切換準備狀態
+                          transaction.update(roomRef.current, { players: pList });
+                      }
+                  });
+              } catch (e) { console.error("Ready transaction failed: ", e); }
           } else if (engineRef.current === 'peerjs') {
               if (isHostRef.current) {
-                  const nList = playersListRef.current.map(p => p.id === myId ? { ...p, isReady: true } : p);
+                  const nList = playersListRef.current.map(p => p.id === myId ? { ...p, isReady: !p.isReady } : p);
                   setPlayersList(nList);
                   connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
               } else if (connRef.current) {
-                  connRef.current.send({ type: 'REQ_READY', targetId: myId });
+                  const me = playersListRef.current.find(p => p.id === myId);
+                  if (me) connRef.current.send({ type: me.isReady ? 'REQ_UNREADY' : 'REQ_READY', targetId: myId });
               }
           } else {
-              setPlayersList(prev => prev.map(p => p.id === myId ? { ...p, isReady: true } : p));
+              setPlayersList(prev => prev.map(p => p.id === myId ? { ...p, isReady: !p.isReady } : p));
           }
       };
 
       const requestRegenerate = () => {
-          if (isMultiplayer && !isHostRef.current && engineRef.current === 'peerjs') {
-              if (connRef.current) connRef.current.send({ type: 'REQ_PLAY_AGAIN' });
-              showToast("已向房主發送重開局請求！");
+          if (engineRef.current === 'firebase' && roomRef.current) {
+              updateDoc(roomRef.current, { "gameState.isGenerating": true }).catch(e => {});
+              showToast("🚀 正在強制開始新一局...");
               return;
           }
+          if (isMultiplayer && !isHostRef.current && engineRef.current === 'peerjs') {
+              if (connRef.current) connRef.current.send({ type: 'REQ_PLAY_AGAIN' });
+              showToast("已向主機發送強制開局請求...");
+              return;
+          }
+          
+          if (isHostRef.current && (isBrawlMode || isGhostRace) && isMultiplayer) {
+              // 主機按下：啟動 5 秒倒數
+              const target = Date.now() + 5500;
+              setCountdownTarget(target);
+              syncState({ countdownTarget: target }, true);
+              return;
+          }
+
           setIsWon(false); setIsClosingModal(true); 
           setTimeout(() => { setIsClosingModal(false); if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current(); }, 300);
       };
@@ -1120,7 +1249,7 @@ console.error = function() {
         const pt = getSvgCoords(e.clientX, e.clientY);
         
         if (interactionMode === 2) {
-            if (drawSubMode === 'eraser') { if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; } if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); } } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) { currentPathDataRef.current += ` L ${pt.x} ${pt.y}`; if (drawingPathRef.current) drawingPathRef.current.setAttribute('d', currentPathDataRef.current); }
+            if (drawSubMode === 'eraser') { if (pt && eraserRef.current) { eraserRef.current.setAttribute('cx', pt.x); eraserRef.current.setAttribute('cy', pt.y); if (eraserRef.current.style.display === 'none') eraserRef.current.style.display = 'block'; } if ((e.buttons > 0 || e.pointerType === 'touch') && Date.now() - lastEraseTimeRef.current > 50) { eraseAtPoint(e.clientX, e.clientY); lastEraseTimeRef.current = Date.now(); } } else if (drawSubMode === 'pen' && isDrawingRef.current && pt && currentPathDataRef.current) { currentPathDataRef.current += ` L ${pt.x} ${pt.y}`; if (drawingPathRef.current) { drawingPathRef.current.setAttribute('d', currentPathDataRef.current); } }
         } else {
             // 防手震：如果移動超過10px就取消長按判定
             if (cellLongPressTimer.current && touchStartPt.current && pt) {
@@ -1132,9 +1261,17 @@ console.error = function() {
             }
         }
         
-        if (engineRef.current !== 'peerjs' || !showOtherCursors) return;
+        if (!showOtherCursors) return;
         if (Date.now() - lastCursorSend.current < 50) return; lastCursorSend.current = Date.now();
-        if (pt) { const msg = { type: 'CURSOR', uid: myId, x: pt.x, y: pt.y }; if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); }
+        if (pt) { 
+            const msg = { type: 'CURSOR', uid: myId, x: pt.x, y: pt.y }; 
+            if (engineRef.current === 'peerjs') {
+                if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); 
+            } else if (engineRef.current === 'firebase' && roomRef.current) {
+                // Firebase 模式：使用節流的高頻更新同步游標位置
+                updateDoc(roomRef.current, { [`cursors.${myId}`]: { x: pt.x, y: pt.y, updatedAt: Date.now() } }).catch(e => {});
+            }
+        }
       };
 
       const handlePointerUp = (e) => {
@@ -1146,13 +1283,42 @@ console.error = function() {
         }
 
         if (interactionMode === 2) {
-            if (drawSubMode === 'pen' && isDrawingRef.current) { isDrawingRef.current = false; if (currentPathDataRef.current) { syncState({ strokes: [...stateRef.current.strokes, { id: Date.now() + '-' + myId, uid: myId, path: currentPathDataRef.current }] }); currentPathDataRef.current = ""; if (drawingPathRef.current) drawingPathRef.current.style.display = 'none'; } }
+            if (drawSubMode === 'pen' && isDrawingRef.current) { 
+                isDrawingRef.current = false; 
+                if (currentPathDataRef.current) { 
+                    const newStroke = { id: Date.now() + '-' + myId, uid: myId, path: currentPathDataRef.current };
+                    if (engineRef.current === 'firebase' && roomRef.current) {
+                        updateDoc(roomRef.current, { "gameState.strokes": arrayUnion(newStroke) }).catch(e=>{});
+                    } else {
+                        syncState({ strokes: [...stateRef.current.strokes, newStroke] }); 
+                    }
+                    currentPathDataRef.current = ""; 
+                    if (drawingPathRef.current) drawingPathRef.current.style.display = 'none'; 
+                } 
+            }
             if (e.type === 'pointerleave' || e.type === 'pointercancel' || e.pointerType === 'touch') if (eraserRef.current) eraserRef.current.style.display = 'none';
         }
       };
 
-      const clearOwnStrokes = () => { syncState({ strokes: stateRef.current.strokes.filter(s => !s.id.endsWith('-' + myId)) }); showToast("🗑️ 已清除你所有的塗鴉"); };
-      const clearAllStrokes = () => { if (isHostRef.current) { syncState({ strokes: [] }); showToast("🚨 房主已清空全場塗鴉"); } };
+      const clearOwnStrokes = () => { 
+          const filtered = stateRef.current.strokes.filter(s => !s.id.endsWith('-' + myId));
+          if (engineRef.current === 'firebase' && roomRef.current) {
+              updateDoc(roomRef.current, { "gameState.strokes": filtered }).catch(e=>{});
+          } else {
+              syncState({ strokes: filtered }); 
+          }
+          showToast("🗑️ 已清除你所有的塗鴉"); 
+      };
+      const clearAllStrokes = () => { 
+          if (isHostRef.current) { 
+              if (engineRef.current === 'firebase' && roomRef.current) {
+                  updateDoc(roomRef.current, { "gameState.strokes": [] }).catch(e=>{});
+              } else {
+                  syncState({ strokes: [] }); 
+              }
+              showToast("🚨 房主已清空全場塗鴉"); 
+          } 
+      };
 
       const purgeGhostPlayers = () => {
         if (!isHostRef.current) return;
@@ -1166,7 +1332,7 @@ console.error = function() {
       };
 
       const autoFillHiddenSingles = async (char) => {
-          if (stateRef.current.isBrawlMode && !stateRef.current.brawlSettings.allowQuickFill) { showToast("⚠️ 房主已關閉快速填答功能"); return; }
+          if ((stateRef.current.isBrawlMode || isGhostRace) && !stateRef.current.brawlSettings.allowQuickFill) { showToast("⚠️ 房主已關閉快速填答功能"); return; }
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true, selectedChar: char }, !isGhostRace);
@@ -1186,7 +1352,15 @@ console.error = function() {
                   }
                   if (isGhostRace) {
                       syncState({ localCells: currentCells }, false);
-                      if (isMultiplayer) { const me = playersListRef.current.find(p => p.id === myId); const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId }; if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); }
+                      if (isMultiplayer) { 
+                          const me = playersListRef.current.find(p => p.id === myId); 
+                          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : myColorRef.current, cellId, id: Math.random().toString(36).substring(2, 11) }; 
+                          if (engineRef.current === 'peerjs') {
+                              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); 
+                          } else if (engineRef.current === 'firebase' && roomRef.current) {
+                              addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+                          }
+                      }
                   } else { syncState({ cells: currentCells }); }
                   await new Promise(r => setTimeout(r, 100));
               }
@@ -1209,7 +1383,7 @@ console.error = function() {
       };
 
       const autoFillDrafts = async (char) => {
-          if (stateRef.current.isBrawlMode && !stateRef.current.brawlSettings.allowQuickFill) { showToast("⚠️ 房主已關閉快速填答功能"); return; }
+          if ((stateRef.current.isBrawlMode || isGhostRace) && !stateRef.current.brawlSettings.allowQuickFill) { showToast("⚠️ 房主已關閉快速填答功能"); return; }
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true, selectedChar: char }, !isGhostRace);
@@ -1230,7 +1404,7 @@ console.error = function() {
       };
 
       const runAutoFillCycle = async (startChar) => {
-          if (stateRef.current.isBrawlMode && !stateRef.current.brawlSettings.allowTraversal) { showToast("⚠️ 房主已關閉循環功能"); return; }
+          if ((stateRef.current.isBrawlMode || isGhostRace) && !stateRef.current.brawlSettings.allowTraversal) { showToast("⚠️ 房主已關閉循環功能"); return; }
           if (isAutoFillingRef.current) return;
           isAutoFillingRef.current = true;
           syncState({ isAutoFilling: true }, !isGhostRace);
@@ -1246,7 +1420,18 @@ console.error = function() {
                   for (let i = 0; i < currentCells.length; i++) {
                       if (i !== idx) { const c = currentCells[i]; if (c.x === targetCell.x || c.y === targetCell.y || c.boxId === targetCell.boxId) { if (c.drafts.includes(fillChar)) { currentCells[i] = { ...c, drafts: c.drafts.filter(d => d !== fillChar) }; } } }
                   }
-                  if (isGhostRace) { syncState({ localCells: currentCells, selectedChar: fillChar }, false); if (isMultiplayer) { const me = playersListRef.current.find(p => p.id === myId); const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId }; if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); } } 
+                  if (isGhostRace) { 
+                      syncState({ localCells: currentCells, selectedChar: fillChar }, false); 
+                      if (isMultiplayer) { 
+                          const me = playersListRef.current.find(p => p.id === myId); 
+                          const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : myColorRef.current, cellId, id: Math.random().toString(36).substring(2, 11) }; 
+                          if (engineRef.current === 'peerjs') {
+                              if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg); 
+                          } else if (engineRef.current === 'firebase' && roomRef.current) {
+                              addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+                          }
+                      } 
+                  }
                   else { syncState({ cells: currentCells, selectedChar: fillChar }); }
                   await new Promise(r => setTimeout(r, 100));
               }
@@ -1288,12 +1473,12 @@ console.error = function() {
               if (!isCompleted) setSelectedChar(prev => prev === c ? null : c);
           } else if (tracker.count === 2) {
               if (!isCompleted) {
-                  const isGhostBlocked = isGhostRace && !(stateRef.current.isBrawlMode && stateRef.current.brawlSettings.allowQuickFill);
+                  const isGhostBlocked = isGhostRace && !stateRef.current.brawlSettings.allowQuickFill;
                   if (isGhostBlocked) { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); tracker.count = 0; } 
                   else { if (interactionMode === 0) autoFillHiddenSingles(c); else if (interactionMode === 1) autoFillDrafts(c); }
               }
           } else if (tracker.count === 5) {
-              const isGhostBlocked = isGhostRace && !(stateRef.current.isBrawlMode && stateRef.current.brawlSettings.allowTraversal);
+              const isGhostBlocked = isGhostRace && !stateRef.current.brawlSettings.allowTraversal;
               if (!isGhostBlocked) { if (interactionMode === 0) runAutoFillCycle(c); else showToast("⚠️ 草稿模式不支援循環自動填寫\n請切換至一般模式使用"); } 
               else { showToast("⚠️ 幽靈賽為確保公平，已封印連鎖填寫！"); }
               tracker.count = 0; 
@@ -1428,10 +1613,22 @@ console.error = function() {
         nextCells[targetIdx] = nextCell; 
         if (isGhostRace) {
             syncState({ localCells: nextCells }, false);
-            if (isCorrect && isMultiplayer) {
+            if (isMultiplayer) {
                 const me = playersListRef.current.find(p => p.id === myId);
-                const msg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : undefined, cellId };
-                if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
+                // 有填入就發送事件，不論正確與否；若被清空也發送 value: null
+                const msg = { 
+                    type: 'GHOST_SOLVED', 
+                    uid: myId, 
+                    color: me ? me.color : myColorRef.current, 
+                    cellId, 
+                    value: nextCell.value,
+                    id: Math.random().toString(36).substring(2, 11) 
+                };
+                if (engineRef.current === 'peerjs') {
+                    if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); else if (connRef.current) connRef.current.send(msg);
+                } else if (engineRef.current === 'firebase' && roomRef.current) {
+                    addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+                }
             }
         } else { syncState({ cells: nextCells }); }
       };
@@ -1477,13 +1674,27 @@ console.error = function() {
             // 保留舊版玩家列表，只更新必要欄位（避免切換模式瞬間玩家消失）
             const nList = prev.map(p => ({ ...p, isReady: (engineRef.current === 'none'), isSpectator: (isBrawl && p.isHost) ? true : false }));
             if (isBrawl && isHostRef.current) setIsSpectator(true); else setIsSpectator(false);
-            // Firebase: 切換模式時不動 players 欄位，只更新 gameState，避免競態覆蓋玩家列表
-            if (engineRef.current === 'peerjs' && isHostRef.current) connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
+            
+            // 同步至連線引擎
+            if (engineRef.current === 'peerjs' && isHostRef.current) {
+                connsRef.current.forEach(c => c.send({ type: 'PLAYERS_UPDATE', players: nList }));
+            } else if (engineRef.current === 'firebase' && isHostRef.current && roomRef.current) {
+                // Firebase 模式：直接更新伺服器上的玩家列表
+                updateDoc(roomRef.current, { players: nList }).catch(e => {});
+                
+                // 清理上一輪的事件消息
+                const eventsCol = collection(roomRef.current, "events");
+                getDocs(eventsCol).then(snap => {
+                    if (snap.size === 0) return;
+                    const batch = writeBatch(db);
+                    snap.docs.forEach(d => batch.delete(d.ref));
+                    batch.commit().catch(e => {});
+                });
+            }
             return nList;
         });
 
         setTimeout(() => {
-            purgeGhostPlayers();
             generateSudokuAsync(sId, dId, setGenProgress).then(newData => {
                 let solution = null; if (isGR) solution = getSolutionGrid(newData.cells, newData.sizeDef);
                 const initLocalCells = JSON.parse(JSON.stringify(newData.cells)); const now = Date.now();
@@ -1555,11 +1766,28 @@ console.error = function() {
             }
             
             setIsHost(false); isHostRef.current = false;
-            const gs = snap.data().gameState;
+            const data = snap.data();
+            const gs = data.gameState;
             // 大亂鬥或幽靈賽進行中加入的玩家都設為觀戰者
             const isSpec = gs && (gs.isGhostRace || gs.isBrawlMode) && gs.matchPhase === 'playing';
             setIsSpectator(isSpec);
             
+            // 立即帶入初始盤面，防止題目不一致或空白
+            if (gs) {
+                if (gs.cells) setCells(gs.cells);
+                if (gs.localCells) setLocalCells(gs.localCells);
+                if (gs.levelData) setLevelData(gs.levelData);
+                if (gs.solutionGrid) {
+                    const parsed = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid;
+                    solutionGridRef.current = parsed;
+                }
+                if (gs.sizeId !== undefined) setSizeId(gs.sizeId);
+                if (gs.diffId !== undefined) setDiffId(gs.diffId);
+                if (gs.keyMapping) setKeyMapping(gs.keyMapping);
+                if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace);
+                if (gs.isBrawlMode !== undefined) setIsBrawlMode(gs.isBrawlMode);
+            }
+
             const meIndex = pList.findIndex(p => p.id === myId);
             if (meIndex === -1) pList.push({ id: myId, name: pName, isHost: false, color: getAvailableColor(pList), isReady: false, isSpectator: isSpec }); else { pList[meIndex].name = pName; pList[meIndex].isSpectator = isSpec; }
             await Promise.race([updateDoc(rDoc, { players: pList, updatedAt: Date.now() }), timeout(6000)]);
@@ -1568,14 +1796,42 @@ console.error = function() {
           unsubRef.current = onSnapshot(rDoc, function(docSnap) {
             if (!docSnap.exists()) { showToast("⚠️ 房主已斷線，切換為單機模式"); switchToOffline(); return; }
             const data = docSnap.data(); const serverPlayers = data.players || []; setPlayersList(serverPlayers);
+            const now = Date.now();
+            const filteredCursors = {};
+            if (data.cursors) {
+                for (const [uid, pos] of Object.entries(data.cursors)) {
+                    if (uid !== myId && (now - (pos.updatedAt || 0) < 10000)) filteredCursors[uid] = pos;
+                }
+            }
+            setCursors(filteredCursors);
             if (isHostRef.current && !serverPlayers.find(p => p.id === myId)) updateDoc(rDoc, { players: [...serverPlayers, { id: myId, name: myNameRef.current, isHost: true, color: myColorRef.current, isReady: false, isSpectator: false }] }).catch(e => {});
             if (data.gameState) {
               const gs = data.gameState;
-              if (gs.cells && gs.cells.length > 0) setCells(gs.cells); if (gs.localCells && gs.localCells.length > 0) setLocalCells(gs.localCells); if (gs.levelData) setLevelData(gs.levelData);
+              if (gs.cells && gs.cells.length > 0) setCells(gs.cells);
+              // 只有在非競速模式，或是正在生成/剛加入時才同步伺服器的 localCells，避免覆蓋本地進度
+              if (gs.localCells && gs.localCells.length > 0) {
+                  const currentIsGhost = stateRef.current.isGhostRace || gs.isGhostRace;
+                  if (!currentIsGhost || gs.isGenerating || stateRef.current.localCells.length === 0) {
+                      setLocalCells(gs.localCells);
+                  }
+              }
+              if (gs.levelData) setLevelData(gs.levelData);
               if (gs.startTime) { setStartTime(gs.startTime); setMatchStartTime(gs.startTime); } if (gs.strokes !== undefined) setStrokes(gs.strokes);
+              // 房主特有邏輯：監聽到有人發送生成請求 (isGenerating: true)
+              if (isHostRef.current && gs.isGenerating === true && !stateRef.current.isGenerating) {
+                  // 避免重複生成，呼叫 generateAndSync
+                  if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current();
+              }
+
               if (gs.matchPhase !== undefined) setMatchPhase(gs.matchPhase); if (gs.countdownTarget !== undefined) setCountdownTarget(gs.countdownTarget);
-              if (gs.isGenerating !== undefined) { setIsGenerating(gs.isGenerating); if (gs.isGenerating) { setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); } }
-              if (gs.selectedChar !== undefined) setSelectedChar(gs.selectedChar); if (gs.isAutoFilling !== undefined) isAutoFillingRef.current = gs.isAutoFilling;
+              if (gs.isGenerating !== undefined) { 
+                  setIsGenerating(gs.isGenerating); 
+                  if (gs.isGenerating) { 
+                      setIsWon(false); setWinner(null); setEndTime(null); isWinnerDeclaredRef.current = false; setBoardGifts([]); completedRegionsRef.current.clear(); scrambledCharsRef.current.clear(); 
+                      // Firebase 模式重置：房主在亂鬥維持觀戰，其他恢復
+                      setIsSpectator(isHostRef.current && gs.isBrawlMode);
+                  } 
+              }
               if (gs.isGhostRace !== undefined) setIsGhostRace(gs.isGhostRace); if (gs.winner !== undefined) setWinner(gs.winner);
               if (gs.keyMapping !== undefined) setKeyMapping(gs.keyMapping);
               if (gs.solutionGrid !== undefined) { const parsedGrid = typeof gs.solutionGrid === 'string' ? JSON.parse(gs.solutionGrid) : gs.solutionGrid; solutionGridRef.current = parsedGrid; gs.solutionGrid = parsedGrid; }
@@ -1583,26 +1839,40 @@ console.error = function() {
               if (gs.isBrawlMode !== undefined) setIsBrawlMode(gs.isBrawlMode);
               if (gs.brawlSettings !== undefined) setBrawlSettings(gs.brawlSettings);
               if (gs.brawlWinners !== undefined) setBrawlWinners(gs.brawlWinners);
-              if (gs.giftEvents) {
-                  gs.giftEvents.forEach(ev => {
+              stateRef.current = { ...stateRef.current, ...gs };
+            }
+          }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
+
+          // Firebase 子集合事件監聽 (禮物、進度、波紋)
+          const eventsCol = collection(rDoc, "events");
+          const qEvents = query(eventsCol, orderBy("createdAt", "asc"));
+          onSnapshot(qEvents, (snapshot) => {
+              snapshot.docChanges().forEach((change) => {
+                  if (change.type === "added") {
+                      const ev = change.doc.data();
                       if (!processedEventsRef.current.has(ev.id)) {
                           processedEventsRef.current.add(ev.id);
                           if (ev.type === 'RECEIVE_GIFT' && ev.targetUid === myId) {
                               if (handleReceiveGiftRef.current) handleReceiveGiftRef.current(ev);
                           } else if (ev.type === 'GIFT_COUNTER_ATTACK' && ev.targetUid === myId) {
                               if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current();
-                          } else if (ev.type === 'GHOST_I_WON' && isHostRef.current && gs.isGhostRace && !stateRef.current.winner) {
+                          } else if (ev.type === 'GHOST_I_WON' && isHostRef.current && stateRef.current.isGhostRace && !stateRef.current.winner) {
                               if (ev.winInfo.isBrawl && handleBrawlWinRef.current) { handleBrawlWinRef.current(ev.winInfo); }
                               else if (!ev.winInfo.isBrawl) { setWinner(ev.winInfo); updateDoc(roomRef.current, { "gameState.winner": ev.winInfo }).catch(e=>{}); }
                           } else if (ev.type === 'GHOST_SOLVED') {
-                              setGhostHints(prev => ({ ...prev, [ev.cellId]: { ...(prev[ev.cellId]||{}), [ev.uid]: ev.color } }));
+                              setGhostHints(prev => {
+                                  const cellHints = { ...(prev[ev.cellId] || {}) };
+                                  if (ev.value === null) delete cellHints[ev.uid];
+                                  else cellHints[ev.uid] = ev.color;
+                                  return { ...prev, [ev.cellId]: cellHints };
+                              });
+                          } else if (ev.type === 'RIPPLE') {
+                              setRipples(prev => [...prev.slice(prev.length > 5 ? 1 : 0), { id: ev.id, x: ev.x, y: ev.y, color: ev.color }]);
                           }
                       }
-                  });
-              }
-              stateRef.current = { ...stateRef.current, ...gs };
-            }
-          }, function(err) { showToast("⚠️ 網路波動，同步中..."); });
+                  }
+              });
+          });
         } catch(e) { setIsConnecting(false); switchToOffline(); showToast(e.message === "TIMEOUT" ? "⚠️ 連線逾時！請確認權限" : "⚠️ 雲端連線失敗"); }
       };
 
@@ -1638,12 +1908,19 @@ console.error = function() {
                   } else if (m.type === 'LEAVE') { setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== m.uid); connsRef.current.forEach(conn => { if (conn !== c && conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; });
                   } else if (m.type === 'SYNC') { syncState(m.data, false); connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send({ type: 'SYNC', data: m.data }); });
                   } else if (m.type === 'GHOST_SOLVED') { connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); }); setGhostHints(prev => ({ ...prev, [m.cellId]: { ...(prev[m.cellId]||{}), [m.uid]: m.color } })); 
-                  } else if (m.type === 'GHOST_I_WON' && stateRef.current.isGhostRace && !stateRef.current.winner) { 
-                      const player = playersListRef.current.find(pl => pl.id === m.senderUid || pl.id === c.uid); 
-                      if(player){ 
-                          const winInfo = m.winInfo || { id: c.uid, name: player.name, color: player.color, time: formatTime(Math.floor((m.time - stateRef.current.startTime)/1000)), isBrawl: stateRef.current.isBrawlMode }; 
-                          if (winInfo.isBrawl && handleBrawlWinRef.current) handleBrawlWinRef.current(winInfo);
-                          else if (!winInfo.isBrawl) { setWinner(winInfo); connsRef.current.forEach(conn => conn.send({ type: 'GHOST_WINNER', winner: winInfo })); }
+                  } else if (m.type === 'GHOST_I_WON') {
+                      if (isHostRef.current) {
+                          if (handleMultiplayerWinRef.current) handleMultiplayerWinRef.current(m.winInfo);
+                      }
+                  } else if (m.type === 'REQ_PLAY_AGAIN') { 
+                      if (isHostRef.current) { 
+                          if (stateRef.current.isBrawlMode || stateRef.current.isGhostRace) {
+                              const target = Date.now() + 5500;
+                              setCountdownTarget(target);
+                              syncState({ countdownTarget: target }, true);
+                          } else {
+                              if (handleRegenerateRandomRef.current) handleRegenerateRandomRef.current();
+                          }
                       } 
                   } else if (m.type === 'REQ_COLOR_CHANGE') { setPlayersList(prev => { const nList = prev.map(pl => pl.id === m.targetId ? { ...pl, color: m.color } : pl); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
                   } else if (m.type === 'REQ_NAME_CHANGE') { 
@@ -1863,7 +2140,7 @@ console.error = function() {
                           <div className="bg-white border-[3px] border-slate-800 rounded-xl p-4 mb-6 shadow-[4px_4px_0px_#1e293b] flex flex-col gap-3 text-left">
                               <h3 className="font-black border-b-2 border-slate-100 pb-2 mb-1 flex items-center justify-between">
                                  <span>⚙️ 房主設定</span>
-                                 {stateRef.current.isBrawlMode && <button onClick={() => setShowBrawlSettings(true)} className="bg-slate-700 text-white px-3 py-1 rounded border-2 border-slate-800 font-black text-sm shadow-[2px_2px_0px_#1e293b] hover:translate-y-[1px] hover:shadow-none">大亂鬥設定</button>}
+                                 {(stateRef.current.isBrawlMode || stateRef.current.isGhostRace) && <button onClick={() => setShowBrawlSettings(true)} className="bg-slate-700 text-white px-3 py-1 rounded border-2 border-slate-800 font-black text-sm shadow-[2px_2px_0px_#1e293b] hover:translate-y-[1px] hover:shadow-none">{stateRef.current.isBrawlMode ? '大亂鬥設定' : '競速設定'}</button>}
                               </h3>
                               <div className="flex flex-wrap gap-2 items-center">
                                   <span className="font-bold text-slate-500 w-12 text-sm">模式</span>
@@ -1939,11 +2216,55 @@ console.error = function() {
               </div>
           )}
 
-          {/* === 幽靈賽：5秒倒數 UI === */}
-          {matchPhase === 'countdown' && countdownNum !== null && !isGenerating && (
+          {/* === 倒數 UI === */}
+          {countdownValue !== null && !isGenerating && (
               <div className="absolute inset-0 z-[65] flex items-center justify-center bg-slate-900/50 backdrop-blur-md pointer-events-auto">
                   <div className="text-[12rem] font-black text-red-500 drop-shadow-[0_0_30px_rgba(255,0,0,0.8)] animate-pulse" style={{ textShadow: '6px 6px 0 #fff, -6px -6px 0 #fff, 6px -6px 0 #fff, -6px 6px 0 #fff' }}>
-                      {countdownNum}
+                      {countdownValue}
+                  </div>
+              </div>
+          )}
+
+          {/* === 遊戲功能設定 Modal (大亂鬥/競速通用) === */}
+          {showBrawlSettings && (
+              <div className="absolute inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-md pointer-events-auto animate-fadeIn p-4">
+                  <div className="bg-white rounded-2xl p-6 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] relative flex flex-col gap-4 min-w-[300px] max-w-sm w-full mx-auto my-auto">
+                      <h2 className={`text-xl font-black mb-2 border-b-4 ${isBrawlMode ? 'border-purple-500' : 'border-red-500'} inline-block pb-1`}>
+                         ⚙️ {isBrawlMode ? '大亂鬥設定' : '競速設定'}
+                      </h2>
+                      
+                      {isBrawlMode && (
+                          <label className="flex items-center justify-between font-bold text-slate-800">
+                              <span>結束名次 (1~5)</span>
+                              <input type="number" min="1" max="5" value={brawlSettings.winnersCount} onChange={e => {
+                                  const val = Math.max(1, Math.min(5, Number(e.target.value)));
+                                  const newSettings = { ...brawlSettings, winnersCount: val };
+                                  syncState({ brawlSettings: newSettings });
+                              }} className="w-16 border-2 border-slate-800 rounded p-1 text-center font-black" />
+                          </label>
+                      )}
+
+                      <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                          <span>開啟快速填答</span>
+                          <input type="checkbox" checked={brawlSettings.allowQuickFill} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowQuickFill: e.target.checked } })} className={`w-5 h-5 ${isBrawlMode ? 'accent-purple-600' : 'accent-red-600'} cursor-pointer`} />
+                      </label>
+
+                      <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                          <span>開啟循環模式</span>
+                          <input type="checkbox" checked={brawlSettings.allowTraversal} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowTraversal: e.target.checked } })} className={`w-5 h-5 ${isBrawlMode ? 'accent-purple-600' : 'accent-red-600'} cursor-pointer`} />
+                      </label>
+
+                      <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                          <span>開啟底塊提示</span>
+                          <input type="checkbox" checked={brawlSettings.allowYellowHint} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowYellowHint: e.target.checked } })} className={`w-5 h-5 ${isBrawlMode ? 'accent-purple-600' : 'accent-red-600'} cursor-pointer`} />
+                      </label>
+
+                      <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
+                          <span>畫面使用色塊遮擋</span>
+                          <input type="checkbox" checked={brawlSettings.hideAnswers} onChange={e => syncState({ brawlSettings: { ...brawlSettings, hideAnswers: e.target.checked } })} className={`w-5 h-5 ${isBrawlMode ? 'accent-purple-600' : 'accent-red-600'} cursor-pointer`} />
+                      </label>
+
+                      <button onClick={() => setShowBrawlSettings(false)} className="mt-4 px-4 py-3 bg-[#ffcc00] border-4 border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all">關閉設定</button>
                   </div>
               </div>
           )}
@@ -1974,7 +2295,7 @@ console.error = function() {
                              >
                                  {isBrawlMode ? '⚔️ 大亂鬥' : (isGhostRace ? '👻 幽靈競速' : '🌐 合作模式')}
                              </button>
-                             {isBrawlMode && isHostRef.current && (
+                             {(isBrawlMode || isGhostRace) && isHostRef.current && (
                                  <button onClick={() => setShowBrawlSettings(true)} className="bg-slate-700 text-white px-1.5 py-0.5 rounded border-2 border-slate-800 font-black text-[10px] md:text-sm shadow-[1px_1px_0px_rgba(30,41,59,1)] hover:translate-y-[1px] hover:shadow-none active:translate-y-[2px] transition-all">
                                      ⚙️ 設定
                                  </button>
@@ -2205,7 +2526,7 @@ console.error = function() {
                         <g transform={`translate(${PADDING}, ${PADDING})`}>
                             {activeCells.map(cell => {
                                 const hasConflict = conflictCellIds.has(cell.id);
-                                const yellowAllowed = (!isGhostRace || (stateRef.current.isBrawlMode && stateRef.current.brawlSettings.allowYellowHint));
+                                const yellowAllowed = (!isGhostRace || stateRef.current.brawlSettings.allowYellowHint);
                                 const isExactMatch = yellowAllowed && selectedChar !== null && cell.value === selectedChar && interactionMode < 2;
                                 const isHighlightZone = yellowAllowed && highlightZones.has(cell.id);
                                 const isFilledWithOther = yellowAllowed && selectedChar !== null && cell.value !== null && cell.value !== selectedChar && interactionMode < 2;
@@ -2312,7 +2633,8 @@ console.error = function() {
                                     const row = Math.floor(idx / 5);
                                     const offsetX = col * (sqSize + 2);
                                     const offsetY = row * (sqSize + 2);
-                                    const playerColor = getPlayerColor(uid);
+                                    // 優先使用 hint 中存儲的顏色，若無則降級搜尋隊伍列表
+                                    let playerColor = color || getPlayerColor(uid);
                                     return (
                                         <rect key={`ghost-${cell.id}-${uid}`} x={cell.x * CELL_SIZE + CELL_SIZE - sqSize - 2 - offsetX} y={cell.y * CELL_SIZE + 2 + offsetY} width={sqSize} height={sqSize} fill={playerColor === 'rainbow' ? 'url(#rainbowGrad)' : playerColor} opacity="0.95" rx="2" className="pointer-events-none ghost-highlight" stroke="rgba(255,255,255,0.7)" strokeWidth="1" />
                                     );
@@ -2370,45 +2692,6 @@ console.error = function() {
                 )}
               </div>
 
-              {/* 大亂鬥設定 Modal */}
-              {showBrawlSettings && (
-                  <div className="absolute inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto animate-fadeIn">
-                      <div className="bg-white rounded-2xl p-6 border-[4px] border-[#2d2a26] shadow-[8px_8px_0px_#2d2a26] relative flex flex-col gap-4 min-w-[300px]">
-                          <h2 className="text-xl font-black mb-2 border-b-4 border-purple-500 inline-block pb-1">⚙️ 大亂鬥設定</h2>
-                          
-                          <label className="flex items-center justify-between font-bold text-slate-800">
-                              <span>結束名次 (1~5)</span>
-                              <input type="number" min="1" max="5" value={brawlSettings.winnersCount} onChange={e => {
-                                  const val = Math.max(1, Math.min(5, Number(e.target.value)));
-                                  const newSettings = { ...brawlSettings, winnersCount: val };
-                                  syncState({ brawlSettings: newSettings });
-                              }} className="w-16 border-2 border-slate-800 rounded p-1 text-center font-black" />
-                          </label>
-
-                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
-                              <span>開啟快速填答</span>
-                              <input type="checkbox" checked={brawlSettings.allowQuickFill} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowQuickFill: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
-                          </label>
-
-                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
-                              <span>開啟循環模式</span>
-                              <input type="checkbox" checked={brawlSettings.allowTraversal} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowTraversal: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
-                          </label>
-
-                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
-                              <span>開啟底塊提示</span>
-                              <input type="checkbox" checked={brawlSettings.allowYellowHint} onChange={e => syncState({ brawlSettings: { ...brawlSettings, allowYellowHint: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
-                          </label>
-
-                          <label className="flex items-center justify-between font-bold text-slate-800 cursor-pointer">
-                              <span>畫面使用色塊遮擋</span>
-                              <input type="checkbox" checked={brawlSettings.hideAnswers} onChange={e => syncState({ brawlSettings: { ...brawlSettings, hideAnswers: e.target.checked } })} className="w-5 h-5 accent-purple-600 cursor-pointer" />
-                          </label>
-
-                          <button onClick={() => setShowBrawlSettings(false)} className="mt-4 px-4 py-2 bg-[#ffcc00] border-4 border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] transition-all">關閉設定</button>
-                      </div>
-                  </div>
-              )}
 
               {((isWon && !isGhostRace) || (isGhostRace && winner)) && !hideVictoryModal && (
                 <div className={`absolute inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-[2px] pointer-events-auto ${isClosingModal ? 'animate-fadeOut' : 'animate-fadeIn'}`}>
@@ -2455,10 +2738,10 @@ console.error = function() {
                         </div>
                     )}
                     <div className="flex justify-center gap-3 flex-wrap w-full mt-4">
-                        {isHostRef.current ? (
+                        {(isHostRef.current || !isMultiplayer) ? (
                             <React.Fragment>
-                                <button onClick={requestRegenerate} className="flex-1 px-3 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all text-sm sm:text-base">再來一局 (同設定)</button> 
-                                <button onClick={requestRegenerate} className="flex-1 px-3 py-3 bg-white text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all text-sm sm:text-base">返回大廳更改設定</button>
+                                <button onClick={requestRegenerate} className="flex-1 px-3 py-3 bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all text-sm sm:text-base">{!isMultiplayer ? '下一題 (同設定)' : '再來一局 (同設定)'}</button> 
+                                <button onClick={!isMultiplayer ? handleGoHome : requestRegenerate} className="flex-1 px-3 py-3 bg-white text-[#2d2a26] border-[4px] border-[#2d2a26] font-black rounded-xl shadow-[4px_4px_0px_#2d2a26] hover:translate-y-[2px] hover:shadow-none transition-all text-sm sm:text-base">{!isMultiplayer ? '返回主選單' : '返回大廳更改設定'}</button>
                             </React.Fragment>
                         ) : (
                             <span className="font-black text-slate-500 bg-slate-100 px-4 py-2 rounded-xl border-2 border-slate-300">⏳ 等待房主決定下一局...</span>
@@ -2511,7 +2794,7 @@ console.error = function() {
           )}
 
           {showSaveModal && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
               <div className="bg-[#fffdfa] border-[4px] border-[#2d2a26] rounded-2xl p-6 shadow-[10px_10px_0px_rgba(30,41,59,1)] w-full max-w-md animate-popUpCenter">
                 <h2 className="text-2xl font-black text-slate-800 mb-2 border-b-4 border-blue-500 inline-block pb-1">💾 存檔與讀檔</h2>
                 <p className="text-sm font-bold text-slate-600 mb-4">將進度轉換為代碼，下次貼上代碼即可恢復！</p>
@@ -2537,8 +2820,21 @@ console.error = function() {
         </div>
       );
     }
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<SudokuGame />);
+
+    const renderApp = () => {
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(React.createElement(SudokuGame));
+    };
+
+    if (window.firebaseAPI) {
+      initApp();
+      renderApp();
+    } else {
+      window.addEventListener('firebase-ready', () => {
+        initApp();
+        renderApp();
+      });
+    }
   </script>
 </body>
 </html>

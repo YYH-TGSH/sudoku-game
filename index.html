@@ -93,6 +93,33 @@
         animation: keyFlip 0.6s ease-in-out forwards;
     }
 
+    /* 水球噴濺入場動畫 */
+    @keyframes splatIn {
+        0%   { transform: scale(0) rotate(-20deg); opacity: 0; }
+        55%  { transform: scale(1.15) rotate(5deg); opacity: 1; }
+        78%  { transform: scale(0.95) rotate(-2deg); opacity: 1; }
+        100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    /* 水球霧化特效：顯示10秒，最後漸變透明消失 */
+    @keyframes fogFade {
+        0%   { opacity: 0; transform: scale(0.5); }
+        3%   { opacity: 1; transform: scale(1); }
+        90%  { opacity: 1; }
+        100% { opacity: 0; }
+    }
+    /* 橡皮擦特效：顯示0.5秒後往上且變透明 */
+    @keyframes eraseFade {
+        0%   { opacity: 1; transform: translateY(0); }
+        90%  { opacity: 0; transform: translateY(-15px); }
+        100% { opacity: 0; transform: translateY(-15px); }
+    }
+    /* 武器按鈕浮動 */
+    @keyframes weaponFloat {
+        0%, 100% { transform: translateY(0); }
+        50%       { transform: translateY(-4px); }
+    }
+    .anim-weapon { animation: weaponFloat 2s ease-in-out infinite; }
+
     @keyframes rainbowStopAnim {
       0%{stop-color:#E3002B;} 5%{stop-color:#F35B00;} 10%{stop-color:#FFC90E;} 15%{stop-color:#D7157A;} 20%{stop-color:#E895C0;} 25%{stop-color:#007A61;} 30%{stop-color:#87D300;} 35%{stop-color:#C4D600;} 40%{stop-color:#8DD1BF;} 45%{stop-color:#616130;} 50%{stop-color:#00538A;} 55%{stop-color:#008CC1;} 60%{stop-color:#00C1D5;} 65%{stop-color:#79C8ED;} 70%{stop-color:#CDBB79;} 75%{stop-color:#41136A;} 80%{stop-color:#935CB9;} 85%{stop-color:#BCA8D1;} 90%{stop-color:#7A0026;} 95%{stop-color:#BC7B70;} 100%{stop-color:#E3002B;}
     }
@@ -433,6 +460,12 @@ console.error = function() {
       const [flippedKeys, setFlippedKeys] = useState([]); 
       const [flares, setFlares] = useState([]);
 
+      // === 道具系統：水球霧化 + 格子清除 ===
+      const [myWeapons, setMyWeapons] = useState([]);         // ['balloon','eraser',...]
+      const [foggedBoxes, setFoggedBoxes] = useState({});     // { boxId: expiryTimestamp }
+      const [erasingCells, setErasingCells] = useState({});   // { cellId: { value, timestamp } }
+      const lastMilestoneRef = useRef(0);    // 已跨越的 10% 里程碑數量（0~9）
+
       const processedEventsRef = useRef(new Set());
       const completedRegionsRef = useRef(new Set());
       const scrambledCharsRef = useRef(new Set()); 
@@ -484,7 +517,7 @@ console.error = function() {
       const unsubRef = useRef(null);
       const zoomContainerRef = useRef(null);
 const lastPinchDist = useRef(null);
-      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, isBrawlMode: false, brawlWinners: [], brawlSettings: { winnersCount: 3, allowQuickFill: false, allowTraversal: false, allowYellowHint: false, hideAnswers: true, allowOthersToPlayAgain: true, allowGifts: true }, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: [], unopenedGifts: {} });
+      const stateRef = useRef({ cells: [], localCells: [], levelData: null, startTime: Date.now(), sizeId: 9, diffId: 'medium', strokes: [], isGenerating: false, selectedChar: null, isGhostRace: false, isBrawlMode: false, brawlWinners: [], brawlSettings: { winnersCount: 3, allowQuickFill: false, allowTraversal: false, allowYellowHint: false, hideAnswers: true, allowOthersToPlayAgain: true, allowGifts: true }, winner: null, isAutoFilling: false, matchPhase: 'playing', countdownTarget: null, giftEvents: [], keyMapping: [], unopenedGifts: {}, myWeapons: [] });
       
       const playersListRef = useRef([]);
 
@@ -600,6 +633,10 @@ const lastPinchDist = useRef(null);
           setUnopenedGifts({});
           scrambledCharsRef.current.clear();
           processedEventsRef.current.clear();
+          // 新局開始：重置道具系統
+          setMyWeapons([]);
+          setFoggedBoxes({});
+          lastMilestoneRef.current = 0;
       }, [startTime]);
 
       const completedChars = useMemo(() => {
@@ -655,7 +692,7 @@ const lastPinchDist = useRef(null);
         initAuth(); onAuthStateChanged(auth, function(u) { if(u) setUser(u); });
       }, []);
 
-      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, isBrawlMode, brawlWinners, brawlSettings, winner, matchPhase, countdownTarget, keyMapping, unopenedGifts }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, isBrawlMode, brawlWinners, brawlSettings, winner, matchPhase, countdownTarget, keyMapping, unopenedGifts]);
+      useEffect(function() { stateRef.current = { ...stateRef.current, cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, isBrawlMode, brawlWinners, brawlSettings, winner, matchPhase, countdownTarget, keyMapping, unopenedGifts, myWeapons, ghostHints }; }, [cells, localCells, levelData, startTime, sizeId, diffId, strokes, isGhostRace, isBrawlMode, brawlWinners, brawlSettings, winner, matchPhase, countdownTarget, keyMapping, unopenedGifts, myWeapons, ghostHints]);
 
       const conflictCellIds = useMemo(() => {
         const conflicts = new Set();
@@ -767,45 +804,88 @@ const lastPinchDist = useRef(null);
 
           if (newComps > 0 && stateRef.current.brawlSettings.allowGifts !== false) {
               for (let k = 0; k < newComps; k++) {
-                  // 修正挑選邏輯：排除觀戰者、已過關者，以及自己
                   const winnersIds = stateRef.current.brawlWinners.map(w => w.id);
                   const validPlayers = playersList.filter(p => !p.isSpectator && !winnersIds.includes(p.id) && p.id !== myId);
-                  const solvedCounts = { ...ghostProgress };
-                  
-                  let minScore = Infinity;
-                  let candidates = [];
-                  
-                  validPlayers.forEach(p => {
-                      const score = (solvedCounts[p.id] || 0) + (stateRef.current.unopenedGifts[p.id] ? stateRef.current.unopenedGifts[p.id].length : 0);
-                      if (score < minScore) {
-                          minScore = score;
-                          candidates = [p.id];
-                      } else if (score === minScore) {
-                          candidates.push(p.id);
-                      }
+
+                  // 計算自己的有效分數（正確格數 + 未拆禮物數）
+                  const myEffectiveScore = (ghostProgress[myId] || 0) +
+                      (stateRef.current.unopenedGifts[myId] ? stateRef.current.unopenedGifts[myId].length : 0);
+
+                  // 只送給比自己弱（有效分數更低）的玩家
+                  const weakerPlayers = validPlayers.filter(p => {
+                      const pScore = (ghostProgress[p.id] || 0) +
+                          (stateRef.current.unopenedGifts[p.id] ? stateRef.current.unopenedGifts[p.id].length : 0);
+                      return pScore < myEffectiveScore;
                   });
 
-                  if (candidates.length === 0) return; // 沒有合法目標則不發送
+                  if (weakerPlayers.length === 0) continue; // 沒有比自己弱的人，不送
 
-                  const targetUid = candidates[Math.floor(Math.random() * candidates.length)];
+                  // 加權隨機：差距越大機率越高
+                  const weights = weakerPlayers.map(p => {
+                      const pScore = (ghostProgress[p.id] || 0) +
+                          (stateRef.current.unopenedGifts[p.id] ? stateRef.current.unopenedGifts[p.id].length : 0);
+                      return Math.sqrt(myEffectiveScore - pScore + 1);
+                  });
+                  const totalWeight = weights.reduce((a, b) => a + b, 0);
+                  let rand = Math.random() * totalWeight;
+                  let targetUid = weakerPlayers[weakerPlayers.length - 1].id;
+                  for (let i = 0; i < weakerPlayers.length; i++) {
+                      rand -= weights[i];
+                      if (rand <= 0) { targetUid = weakerPlayers[i].id; break; }
+                  }
+
                   const gid = Math.random().toString(36).substring(2, 10);
                   const msg = { type: 'RECEIVE_GIFT', targetUid, senderUid: myId, id: gid, timestamp: Date.now() };
                   
                   if (engineRef.current === 'peerjs') {
                       if (isHostRef.current) connsRef.current.forEach(c => c.send(msg)); 
                       else if (connRef.current) connRef.current.send(msg);
-                      
                       setUnopenedGifts(prev => {
                           const q = prev[targetUid] || [];
                           return { ...prev, [targetUid]: [...q, myId] };
                       });
                   } else if (engineRef.current === 'firebase' && roomRef.current) {
-                      // Firebase 模式：改用子集合 addDoc 避免覆蓋
                       addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
                   }
               }
           }
       }, [localCells, isGhostRace, isGenerating, cSizeDef.size, cSizeDef.chars, ghostHints, isSpectator, matchPhase, conflictCellIds, ghostProgress, playersList, brawlWinners]);
+
+      // === 里程碑偵測：自己每跨過 10% 就廣播給主機分配道具 ===
+      useEffect(() => {
+          if (!isGhostRace || isSpectator || matchPhase !== 'playing' || !isMultiplayer) return;
+          if (totalEmpty === 0) return;
+
+          // 計算自己的有效完成率（使用 ghostProgress 的自身值，最精確）
+          const myCorrect = ghostProgress[myId] || 0;
+          const myGifts = (stateRef.current.unopenedGifts[myId] || []).length;
+          const myEffectivePct = Math.min(99, Math.floor(((myCorrect + myGifts) / totalEmpty) * 100));
+
+          // 目前應達到的里程碑級別（每 10% 一個）
+          const currentMilestone = Math.floor(myEffectivePct / 10);
+
+          if (currentMilestone > lastMilestoneRef.current) {
+              lastMilestoneRef.current = currentMilestone;
+              // 廣播給主機（主機自己也要處理）
+              const msg = {
+                  type: 'MILESTONE_REACHED',
+                  uid: myId,
+                  completionPct: myEffectivePct,
+                  id: Math.random().toString(36).substring(2, 10),
+                  timestamp: Date.now()
+              };
+              if (engineRef.current === 'peerjs') {
+                  if (isHostRef.current) {
+                      // 自己是主機，直接本地處理
+                      if (handleMilestoneRef.current) handleMilestoneRef.current(msg);
+                  } else if (connRef.current) {
+                      connRef.current.send(msg);
+                  }
+              } else if (engineRef.current === 'firebase' && roomRef.current) {
+                  addDoc(collection(roomRef.current, "events"), { ...msg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+              }
+          }
+      }, [ghostProgress, myId, isGhostRace, isSpectator, matchPhase, isMultiplayer, totalEmpty]);
 
       useEffect(() => {
           if (!activeCells || activeCells.length === 0 || isGenerating || winner || matchPhase !== 'playing' || isSpectator) return;
@@ -878,6 +958,36 @@ const lastPinchDist = useRef(null);
         const timer = setTimeout(() => { const now = Date.now(); setRipples(prev => prev.filter(r => now - r.timestamp < 1000)); }, 1000);
         return () => clearTimeout(timer);
       }, [ripples]);
+
+      // 霧化遮罩倒數 ticker：每 500ms 觸發一次重渲染以更新倒數秒數
+      useEffect(() => {
+          if (Object.keys(foggedBoxes).length === 0) return;
+          const ticker = setInterval(() => {
+              const now = Date.now();
+              setFoggedBoxes(prev => {
+                  const next = { ...prev };
+                  let changed = false;
+                  Object.keys(next).forEach(k => { if (next[k] <= now) { delete next[k]; changed = true; } });
+                  return changed ? next : prev; // 若有到期的才更新 state
+              });
+          }, 500);
+          return () => clearInterval(ticker);
+      }, [foggedBoxes]);
+
+      // 清除特效清理 ticker：每 500ms 清理超過 1 秒的 erasingCells
+      useEffect(() => {
+          if (Object.keys(erasingCells).length === 0) return;
+          const ticker = setInterval(() => {
+              const now = Date.now();
+              setErasingCells(prev => {
+                  const next = { ...prev };
+                  let changed = false;
+                  Object.keys(next).forEach(k => { if (now - next[k].timestamp > 1000) { delete next[k]; changed = true; } });
+                  return changed ? next : prev;
+              });
+          }, 500);
+          return () => clearInterval(ticker);
+      }, [erasingCells]);
 
       const revealSystemCellRef = useRef();
       revealSystemCellRef.current = (cellId) => {
@@ -973,6 +1083,209 @@ const lastPinchDist = useRef(null);
           });
       };
 
+
+      // ================================================================
+      // 道具系統：主機里程碑分配 + 接收道具 + 水球霧化 + 格子清除
+      // ================================================================
+
+      // 主機處理 MILESTONE_REACHED：加權計算哪些弱者獲得道具
+      const handleMilestoneRef = useRef();
+      handleMilestoneRef.current = (ev) => {
+          if (!isHostRef.current) return;
+          if (stateRef.current.brawlSettings.allowGifts === false) return;
+
+          const triggererUid = ev.uid;
+          const triggererPct = ev.completionPct;
+
+          // 找比觸發者有效分數更低的玩家（排除觀戰、已完成、觸發者本人）
+          const winnersIds = stateRef.current.brawlWinners.map(w => w.id);
+          const candidates = playersListRef.current.filter(p =>
+              !p.isSpectator && !winnersIds.includes(p.id) && p.id !== triggererUid
+          );
+
+          // 計算每人有效完成率（從 ghostHints 直接計算，因為 ghostProgress 是 computed value）
+          const ghostHintsData = stateRef.current.ghostHints || {};
+          const totalEmp = stateRef.current.localCells.filter(c => !c.isGiven).length || 1;
+          const getEffPct = (uid) => {
+              // 從 ghostHints 計算該玩家已填格數（ghostHints[cellId][uid] 代表有填）
+              const corr = Object.values(ghostHintsData).filter(hints => hints && hints[uid]).length;
+              const gifts = (stateRef.current.unopenedGifts[uid] || []).length;
+              return Math.min(99, Math.floor(((corr + gifts) / totalEmp) * 100));
+          };
+
+          // 只選比觸發者完成率低的玩家
+          const weakerCandidates = candidates.filter(p => getEffPct(p.id) < triggererPct);
+          if (weakerCandidates.length === 0) return;
+
+          // 加權獨立擲骰：每人各自有機率獲得道具
+          weakerCandidates.forEach(p => {
+              const gap = triggererPct - getEffPct(p.id);
+              const prob = Math.min(0.85, Math.sqrt(gap + 1) / (weakerCandidates.length + 2));
+              if (Math.random() < prob) {
+                  // 道具上限 3 個
+                  const curWeapons = stateRef.current.myWeapons || [];
+                  // （注意：這裡 myWeapons 是自己的，不是目標的；主機只能廣播給目標）
+                  const weaponType = Math.random() < 0.5 ? 'balloon' : 'eraser';
+                  const wid = Math.random().toString(36).substring(2, 10);
+                  const wMsg = { type: 'RECEIVE_WEAPON', targetUid: p.id, weaponType, id: wid, timestamp: Date.now() };
+                  // 廣播給所有人（讓目標自己接收）
+                  if (engineRef.current === 'peerjs') {
+                      connsRef.current.forEach(c => c.send(wMsg));
+                      // 如果目標是主機自己（主機玩家）
+                      if (p.id === myId) {
+                          setMyWeapons(prev => prev.length >= 3 ? prev : [...prev, weaponType]);
+                      }
+                  } else if (engineRef.current === 'firebase' && roomRef.current) {
+                      addDoc(collection(roomRef.current, "events"), { ...wMsg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+                  }
+              }
+          });
+      };
+
+      // 接收道具：加入自己的道具庫（上限 3 個）
+      const handleReceiveWeaponRef = useRef();
+      handleReceiveWeaponRef.current = (ev) => {
+          if (ev.targetUid !== myId || isSpectator) return;
+          setMyWeapons(prev => {
+              if (prev.length >= 3) return prev; // 已達上限
+              const weaponName = ev.weaponType === 'balloon' ? '💧 水球' : '🧹 橡皮擦';
+              showToast(`🎯 獲得道具：${weaponName}！點擊道具按鈕攻擊對手！`);
+              return [...prev, ev.weaponType];
+          });
+      };
+
+      // 收到水球霧化攻擊：隨機霧化自己的一個宮格 10 秒
+      const handleWeaponHitFogRef = useRef();
+      handleWeaponHitFogRef.current = (ev) => {
+          if (ev.targetUid !== myId || isSpectator) return;
+          // 選一個隨機宮格（從有數字的格子中選）
+          const totalBoxes = cSizeDef.size; // 9x9 有 9 個宮格 (boxId 0~8)
+          const randomBoxId = Math.floor(Math.random() * totalBoxes);
+          const expiry = Date.now() + 10000; // 10 秒
+          setFoggedBoxes(prev => ({ ...prev, [randomBoxId]: expiry }));
+          showToast(`💧 水球命中！宮格被顏料遮住了 10 秒！`);
+          // 10 秒後自動解除
+          setTimeout(() => {
+              setFoggedBoxes(prev => {
+                  const next = { ...prev };
+                  if (next[randomBoxId] === expiry) delete next[randomBoxId];
+                  return next;
+              });
+          }, 10000);
+      };
+
+      // 收到格子清除攻擊：清除自己隨機一格已填正確的格子
+      const handleWeaponHitEraseRef = useRef();
+      handleWeaponHitEraseRef.current = (ev) => {
+          if (ev.targetUid !== myId || isSpectator) return;
+          const solution = solutionGridRef.current;
+          if (!solution) return;
+          // 找所有已填正確、非預填、非系統揭露的格子
+          const correctCells = stateRef.current.localCells.filter(c =>
+              !c.isGiven && !c.isSystemRevealed && c.value !== null &&
+              c.value === solution[c.y][c.x]
+          );
+          if (correctCells.length === 0) {
+              showToast(`🧹 橡皮擦沒有效果，你沒有可被清除的格子！`);
+              return;
+          }
+          const target = correctCells[Math.floor(Math.random() * correctCells.length)];
+          
+          // 寫入 erasingCells 記錄發動特效
+          setErasingCells(prev => ({
+              ...prev,
+              [target.id]: { value: target.value, timestamp: Date.now() }
+          }));
+
+          // 清除該格
+          setLocalCells(prev => {
+              const next = prev.map(c => c.id === target.id ? { ...c, value: null, drafts: [], owner: null } : c);
+              stateRef.current.localCells = next;
+              return next;
+          });
+          // 廣播給其他人這格退步了
+          const me = playersListRef.current.find(p => p.id === myId);
+          const ghostMsg = { type: 'GHOST_SOLVED', uid: myId, color: me ? me.color : myColorRef.current, cellId: target.id, value: null, id: Math.random().toString(36).substring(2, 11) };
+          if (engineRef.current === 'peerjs') {
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(ghostMsg));
+              else if (connRef.current) connRef.current.send(ghostMsg);
+          } else if (engineRef.current === 'firebase' && roomRef.current) {
+              addDoc(collection(roomRef.current, "events"), { ...ghostMsg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+          }
+          showToast(`🧹 一格被橡皮擦清除了！再想想看...`);
+      };
+
+      // 玩家主動使用道具：廣播攻擊
+      const handleUseWeapon = (weaponType) => {
+          if (stateRef.current.myWeapons.length === 0) return;
+          const idx = stateRef.current.myWeapons.indexOf(weaponType);
+          if (idx === -1) return;
+
+          // 自動選擇攻擊目標（優先打比自己強的）
+          const giftsData = stateRef.current.unopenedGifts || {};
+          const hintsData = stateRef.current.ghostHints || {};
+          const validPlayers = playersListRef.current.filter(p => !p.isSpectator && p.id !== myId && !stateRef.current.brawlWinners.some(w => w.id === p.id));
+          
+          if (validPlayers.length === 0) {
+              showToast("😅 目前沒有可以攻擊的對手");
+              return;
+          }
+
+          let myScore = Object.values(hintsData).filter(h => h && h[myId]).length + (giftsData[myId] ? giftsData[myId].length : 0);
+          
+          const strongerPlayers = validPlayers.filter(p => {
+              const pScore = Object.values(hintsData).filter(h => h && h[p.id]).length + (giftsData[p.id] ? giftsData[p.id].length : 0);
+              return pScore > myScore;
+          });
+          
+          let targetUid;
+          if (strongerPlayers.length === 0) {
+              targetUid = validPlayers[Math.floor(Math.random() * validPlayers.length)].id;
+          } else {
+              const weights = strongerPlayers.map(p => {
+                  const pScore = Object.values(hintsData).filter(h => h && h[p.id]).length + (giftsData[p.id] ? giftsData[p.id].length : 0);
+                  return Math.sqrt(pScore - myScore);
+              });
+              const totalWeight = weights.reduce((a, b) => a + b, 0);
+              let rand = Math.random() * totalWeight;
+              targetUid = strongerPlayers[strongerPlayers.length - 1].id;
+              for (let i = 0; i < strongerPlayers.length; i++) {
+                  rand -= weights[i];
+                  if (rand <= 0) { targetUid = strongerPlayers[i].id; break; }
+              }
+          }
+
+          // 移除已使用的道具
+          setMyWeapons(prev => {
+              const next = [...prev];
+              next.splice(idx, 1);
+              stateRef.current.myWeapons = next;
+              return next;
+          });
+
+          const hitType = weaponType === 'balloon' ? 'WEAPON_HIT_FOG' : 'WEAPON_HIT_ERASE';
+          const wMsg = { type: hitType, targetUid, senderUid: myId, id: Math.random().toString(36).substring(2, 10), timestamp: Date.now() };
+          
+          const sObj = playersListRef.current.find(p => p.id === myId);
+          const senderName = sObj ? sObj.name : '某人';
+
+          if (engineRef.current === 'peerjs') {
+              if (isHostRef.current) connsRef.current.forEach(c => c.send(wMsg));
+              else if (connRef.current) connRef.current.send(wMsg);
+              // 如果攻擊目標是主機自己
+              if (targetUid === myId) {
+                  if (weaponType === 'balloon' && handleWeaponHitFogRef.current) handleWeaponHitFogRef.current(wMsg);
+                  else if (weaponType === 'eraser' && handleWeaponHitEraseRef.current) handleWeaponHitEraseRef.current(wMsg);
+              }
+          } else if (engineRef.current === 'firebase' && roomRef.current) {
+              addDoc(collection(roomRef.current, "events"), { ...wMsg, createdAt: serverTimestamp() }).catch(e => console.error(e));
+          }
+
+          const tObj = playersListRef.current.find(p => p.id === targetUid);
+          const targetName = tObj ? tObj.name : '對手';
+          const emoji = weaponType === 'balloon' ? '💧' : '🧹';
+          showToast(`${emoji} 向 ${targetName} 發射了攻擊！`);
+      };
 
       const handleOpenGift = () => {
           if (interactionMode >= 2 || matchPhase !== 'playing' || isSpectator) return;
@@ -1966,6 +2279,14 @@ const lastPinchDist = useRef(null);
                               });
                           } else if (ev.type === 'RIPPLE') {
                               setRipples(prev => [...prev.slice(prev.length > 5 ? 1 : 0), { id: ev.id, x: ev.x, y: ev.y, color: ev.color }]);
+                          } else if (ev.type === 'MILESTONE_REACHED' && isHostRef.current) {
+                              if (handleMilestoneRef.current) handleMilestoneRef.current(ev);
+                          } else if (ev.type === 'RECEIVE_WEAPON') {
+                              if (handleReceiveWeaponRef.current) handleReceiveWeaponRef.current(ev);
+                          } else if (ev.type === 'WEAPON_HIT_FOG') {
+                              if (handleWeaponHitFogRef.current) handleWeaponHitFogRef.current(ev);
+                          } else if (ev.type === 'WEAPON_HIT_ERASE') {
+                              if (handleWeaponHitEraseRef.current) handleWeaponHitEraseRef.current(ev);
                           }
                       }
                   }
@@ -2045,6 +2366,17 @@ const lastPinchDist = useRef(null);
                       if (m.targetUid === myId) { if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current(); }
                   } else if (m.type === 'REQ_READY') {
                       setPlayersList(prev => { const nList = prev.map(p => p.id === m.targetId ? { ...p, isReady: true } : p); connsRef.current.forEach(conn => conn.send({ type: 'PLAYERS_UPDATE', players: nList })); return nList; });
+                  } else if (m.type === 'MILESTONE_REACHED') {
+                      if (handleMilestoneRef.current) handleMilestoneRef.current(m);
+                  } else if (m.type === 'WEAPON_HIT_FOG') {
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
+                      if (m.targetUid === myId && handleWeaponHitFogRef.current) handleWeaponHitFogRef.current(m);
+                  } else if (m.type === 'WEAPON_HIT_ERASE') {
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
+                      if (m.targetUid === myId && handleWeaponHitEraseRef.current) handleWeaponHitEraseRef.current(m);
+                  } else if (m.type === 'RECEIVE_WEAPON') {
+                      connsRef.current.forEach(conn => { if(conn.peer !== c.peer) conn.send(m); });
+                      if (handleReceiveWeaponRef.current) handleReceiveWeaponRef.current(m);
                   }
                 });
                 c.on('close', function() { connsRef.current = connsRef.current.filter(conn => conn.peer !== c.peer); if (c.uid) setPlayersList(prev => { const nList = prev.filter(pl => pl.id !== c.uid); connsRef.current.forEach(conn => { if (conn.open) conn.send({ type: 'PLAYERS_UPDATE', players: nList }); }); return nList; }); });
@@ -2085,6 +2417,9 @@ const lastPinchDist = useRef(null);
                       }
                   }
                   else if (m.type === 'GIFT_COUNTER_ATTACK') { if (m.targetUid === myId) { if (handleReceiveCounterAttackRef.current) handleReceiveCounterAttackRef.current(); } }
+                   else if (m.type === 'RECEIVE_WEAPON') { if (handleReceiveWeaponRef.current) handleReceiveWeaponRef.current(m); }
+                   else if (m.type === 'WEAPON_HIT_FOG') { if (handleWeaponHitFogRef.current) handleWeaponHitFogRef.current(m); }
+                   else if (m.type === 'WEAPON_HIT_ERASE') { if (handleWeaponHitEraseRef.current) handleWeaponHitEraseRef.current(m); }
                 });
                 c.on('close', function() { showToast("⚠️ 主機已離線，切換為單機模式"); switchToOffline(); });
             });
@@ -2205,7 +2540,7 @@ const lastPinchDist = useRef(null);
                  </div>
               </div>
             </div>
-            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v3.1.1)</div>
+            <div className="shrink-0 pb-4 text-slate-800 font-black text-sm opacity-60 tracking-wider z-10">Copyright © 2026 葉大帥. All rights reserved. (v3.3.1)</div>
           </div>
         );
       }
@@ -2297,23 +2632,37 @@ const lastPinchDist = useRef(null);
                       )}
 
                       <div className="flex flex-col gap-2 mb-6 max-h-[160px] overflow-y-auto pr-2 custom-scrollbar">
-                          {playersList.map(p => (
-                              <div key={p.id} className="flex justify-between items-center bg-white p-3 rounded-xl border-2 border-slate-800 shadow-sm shrink-0">
-                                  <span className="font-bold text-slate-700 text-base flex items-center gap-2 truncate">
-                                      <span className="w-4 h-4 rounded-full inline-block border-2 border-slate-800 shadow-inner shrink-0" style={{background: p.color === 'rainbow' ? 'linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet)' : p.color}}></span>
-                                      <span className="truncate">{p.name} {p.id === myId && '(你)'} {p.isHost && '👑'}</span>
-                                  </span>
-                                  <span className="font-black text-sm shrink-0 ml-2">
-                                      {(stateRef.current.isBrawlMode && p.isHost) ? (
-                                           <span className="text-purple-600 bg-purple-100 px-2 py-0.5 rounded">上帝視角</span>
-                                      ) : p.isReady ? (
-                                           <span className="text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded">✔ 已準備</span>
-                                      ) : (
-                                           <span className="text-slate-400 bg-slate-100 px-2 py-0.5 rounded">等待中...</span>
-                                      )}
-                                  </span>
-                              </div>
-                          ))}
+                          {playersList.map(p => {
+                              const canEdit = p.id === myId || isHostRef.current;
+                              return (
+                                  <div key={p.id} 
+                                      className={`flex justify-between items-center bg-white p-3 rounded-xl border-2 border-slate-800 shadow-sm shrink-0 ${canEdit ? 'cursor-pointer hover:bg-slate-100 transition-colors' : ''}`}
+                                      onClick={() => {
+                                          if (canEdit) {
+                                              setEditName(p.name);
+                                              setColorPickerTarget(p.id);
+                                          } else {
+                                              showToast("⚠️ 只有房主可以更改其他玩家的設定！");
+                                          }
+                                      }}
+                                      title={canEdit ? (p.id === myId ? "點擊修改自己的設定" : "房主可修改他人設定") : "無法修改他人設定"}
+                                  >
+                                      <span className="font-bold text-slate-700 text-base flex items-center gap-2 truncate">
+                                          <span className="w-4 h-4 rounded-full inline-block border-2 border-slate-800 shadow-inner shrink-0" style={{background: p.color === 'rainbow' ? 'linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet)' : p.color}}></span>
+                                          <span className="truncate">{p.name} {p.id === myId && '(你)'} {p.isHost && '👑'}</span>
+                                      </span>
+                                      <span className="font-black text-sm shrink-0 ml-2">
+                                          {(stateRef.current.isBrawlMode && p.isHost) ? (
+                                               <span className="text-purple-600 bg-purple-100 px-2 py-0.5 rounded">上帝視角</span>
+                                          ) : p.isReady ? (
+                                               <span className="text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded">✔ 已準備</span>
+                                          ) : (
+                                               <span className="text-slate-400 bg-slate-100 px-2 py-0.5 rounded">等待中...</span>
+                                          )}
+                                      </span>
+                                  </div>
+                              );
+                          })}
                       </div>
                       
                       <div className="flex gap-3">
@@ -2663,6 +3012,13 @@ const lastPinchDist = useRef(null);
                               <stop offset="0%" className="rainbow-stop" />
                               <stop offset="100%" className="rainbow-stop" />
                           </linearGradient>
+                          {/* 水球顏料遮罩漸層：繽紛紫色系 */}
+                          <radialGradient id="fogGrad" cx="50%" cy="45%" r="60%">
+                              <stop offset="0%" stopColor="#a855f7" stopOpacity="0.95" />
+                              <stop offset="40%" stopColor="#7c3aed" stopOpacity="0.90" />
+                              <stop offset="80%" stopColor="#db2777" stopOpacity="0.85" />
+                              <stop offset="100%" stopColor="#1e1b4b" stopOpacity="0.75" />
+                          </radialGradient>
                         </defs>
 
                         {/* 1. 最底層：背景與高亮 */}
@@ -2723,6 +3079,17 @@ const lastPinchDist = useRef(null);
                                 return (
                                     <g key={`cell-${cell.id}`} id={`cell-${cell.id}`} onClick={() => handleCellClick(cell.id)} className={interactionMode >= 2 ? 'pointer-events-none' : 'cursor-pointer group'}>
                                         <rect x={cx} y={cy} width={CELL_SIZE} height={CELL_SIZE} fill="transparent" className={interactionMode >= 2 ? '' : 'hover:fill-yellow-600/20 transition-colors'} />
+
+                                        {erasingCells[cell.id] && (
+                                            <g className="pointer-events-none select-none" style={{ animation: 'eraseFade 0.5s ease-in forwards' }}>
+                                                <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight="bold" fill={isRainbow ? undefined : valColor} className={isRainbow ? 'rainbow-fill' : ''}>
+                                                    {erasingCells[cell.id].value}
+                                                </text>
+                                                <text x={cx + CELL_SIZE/2 + 10} y={cy + CELL_SIZE/2 - 10} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.4}>
+                                                    🧹
+                                                </text>
+                                            </g>
+                                        )}
 
                                         {cell.value ? (
                                             <text x={cx + CELL_SIZE/2} y={cy + CELL_SIZE/2 + 2} textAnchor="middle" dominantBaseline="central" fontSize={CELL_SIZE * 0.6} fontWeight={cell.isGiven || cell.isSystemRevealed ? "900" : "bold"} fill={isRainbow ? undefined : valColor} className={`pointer-events-none select-none ${isRainbow ? 'rainbow-fill' : ''}`}>
@@ -2786,6 +3153,28 @@ const lastPinchDist = useRef(null);
                         </g>
                         
                         {/* 舊版盤面實體化禮物已廢除，改為右下角懸浮 UI */}
+
+                        {/* 6. 霧化遮罩層：水球砸到的宮格顯示顏料遮罩 10 秒 */}
+                        {isGhostRace && Object.entries(foggedBoxes).map(([boxIdStr, expiry]) => {
+                            const boxId = parseInt(boxIdStr);
+                            const boxRow = Math.floor(boxId / (cSizeDef.size / cSizeDef.boxH));
+                            const boxCol = boxId % (cSizeDef.size / cSizeDef.boxW);
+                            const bx = boxCol * cSizeDef.boxW * CELL_SIZE;
+                            const by = boxRow * cSizeDef.boxH * CELL_SIZE;
+                            const bw = cSizeDef.boxW * CELL_SIZE;
+                            const bh = cSizeDef.boxH * CELL_SIZE;
+                            const remaining = Math.max(0, expiry - Date.now());
+                            const isExpiring = remaining < 3000; // 快消失時閃爍
+                            return (
+                                <g key={`fog-${boxId}`} className="pointer-events-none">
+                                    <text x={bx + bw/2} y={by + bh/2 + 4} textAnchor="middle" dominantBaseline="central"
+                                        fontSize={Math.min(bw, bh) * 0.9}
+                                        style={{ animation: 'fogFade 10s ease-in-out forwards', userSelect: 'none', transformOrigin: `${bx + bw/2}px ${by + bh/2}px` }}>
+                                        🫟
+                                    </text>
+                                </g>
+                            );
+                        })}
 
                         {/* 5. 最頂層：游標與橡皮擦 */}
                         <circle ref={eraserRef} r="15" fill={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} fillOpacity="0.4" stroke={myCurrentColor === 'rainbow' ? undefined : myCurrentColor} strokeWidth="2" className={`pointer-events-none ${myCurrentColor === 'rainbow' ? 'rainbow-stroke rainbow-fill' : ''}`} style={{ display: 'none' }} />
@@ -2883,18 +3272,58 @@ const lastPinchDist = useRef(null);
                   <button onClick={() => setHideVictoryModal(false)} className="pointer-events-auto bg-[#ffcc00] text-[#2d2a26] border-[4px] border-[#2d2a26] px-6 py-3 rounded-full shadow-[6px_6px_0px_#2d2a26] hover:translate-y-[2px] transition-all font-black flex items-center gap-2 tracking-wide text-lg">🏆 顯示成績</button>
                 </div>
               )}
-              {screen === 'game' && matchPhase === 'playing' && !isSpectator && unopenedGifts[myId] && unopenedGifts[myId].length > 0 && (
-                <button 
-                  id="btn-open-gift"
-                  onClick={handleOpenGift}
-                  className="absolute bottom-28 right-4 md:right-8 z-[70] w-14 h-14 bg-pink-500 rounded-full border-[3px] border-[#2d2a26] shadow-[4px_4px_0px_#2d2a26] text-3xl animate-bounce hover:scale-110 active:scale-95 transition-all flex items-center justify-center p-0"
-                  title="拆開禮物 (反擊)"
-                >
-                  🎁
-                  <div className="absolute -top-2 -right-2 bg-red-500 text-white font-black text-sm w-6 h-6 flex items-center justify-center rounded-full border-2 border-[#2d2a26]">
-                      {unopenedGifts[myId].length}
+              
+
+              {/* === 道具/禮物按鈕群組（移至正下方橫向排列）=== */}
+              {screen === 'game' && matchPhase === 'playing' && !isSpectator && (
+                  <div className="fixed bottom-6 md:bottom-12 left-1/2 -translate-x-1/2 z-[70] flex flex-row gap-4 items-center">
+                    {/* 禮物按鈕 */}
+                    {unopenedGifts[myId] && unopenedGifts[myId].length > 0 && (
+                      <button 
+                        id="btn-open-gift"
+                        onClick={handleOpenGift}
+                        className="relative w-14 h-14 md:w-16 md:h-16 bg-pink-500 rounded-full border-[3px] border-[#2d2a26] shadow-[4px_4px_0px_#2d2a26] text-3xl md:text-4xl animate-bounce hover:scale-110 active:scale-95 transition-all flex items-center justify-center p-0"
+                        title="拆開禮物 (獲得正確答案)"
+                        style={{animationDuration: '2s'}}
+                      >
+                        🎁
+                        <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-white font-black text-xs w-6 h-6 flex items-center justify-center rounded-full border-2 border-[#2d2a26]">
+                            {unopenedGifts[myId].length}
+                        </div>
+                      </button>
+                    )}
+                    {/* 水球按鈕 */}
+                    {isGhostRace && myWeapons.filter(w => w === 'balloon').length > 0 && (
+                      <button
+                        onClick={() => handleUseWeapon('balloon')}
+                        className="relative w-14 h-14 md:w-16 md:h-16 rounded-full border-[3px] border-[#2d2a26] shadow-[4px_4px_0px_#2d2a26] text-3xl md:text-4xl anim-weapon hover:scale-110 active:scale-95 transition-all flex items-center justify-center bg-violet-500"
+                        title="💧 水球霧化 - 隨機讓比你強的對手宮格 10 秒看不見"
+                      >
+                        💧
+                        {myWeapons.filter(w => w === 'balloon').length > 1 && (
+                          <div className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-slate-900 font-black text-xs w-5 h-5 flex items-center justify-center rounded-full border-2 border-[#2d2a26]">
+                            {myWeapons.filter(w => w === 'balloon').length}
+                          </div>
+                        )}
+                      </button>
+                    )}
+                    {/* 橡皮擦按鈕 */}
+                    {isGhostRace && myWeapons.filter(w => w === 'eraser').length > 0 && (
+                      <button
+                        onClick={() => handleUseWeapon('eraser')}
+                        className="relative w-14 h-14 md:w-16 md:h-16 rounded-full border-[3px] border-[#2d2a26] shadow-[4px_4px_0px_#2d2a26] text-3xl md:text-4xl anim-weapon hover:scale-110 active:scale-95 transition-all flex items-center justify-center bg-orange-500"
+                        title="🧹 格子清除 - 隨機清除比你強的對手一格正確答案"
+                        style={{animationDelay: '0.3s'}}
+                      >
+                        🧹
+                        {myWeapons.filter(w => w === 'eraser').length > 1 && (
+                          <div className="absolute -top-1.5 -right-1.5 bg-yellow-400 text-slate-900 font-black text-xs w-5 h-5 flex items-center justify-center rounded-full border-2 border-[#2d2a26]">
+                            {myWeapons.filter(w => w === 'eraser').length}
+                          </div>
+                        )}
+                      </button>
+                    )}
                   </div>
-                </button>
               )}
             </div>
           </div>
